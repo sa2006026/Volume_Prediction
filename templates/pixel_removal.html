@@ -1,0 +1,1936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎨 Interactive Pixel Removal Tool</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: flex;
+            min-height: 600px;
+        }
+
+        .controls-panel {
+            width: 350px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-right: 1px solid #e9ecef;
+        }
+
+        .image-panel {
+            flex: 1;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .control-group h3 {
+            color: #495057;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 5px;
+            min-width: 100px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn.selected {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            box-shadow: 0 3px 10px rgba(40, 167, 69, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 5px 15px rgba(220, 53, 69, 0.4);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        }
+
+        .btn-success:hover {
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 0.9em;
+            transition: border-color 0.3s ease;
+        }
+
+        .input-group input[type="file"] {
+            padding: 8px;
+            background: #f8f9fa;
+            border: 2px dashed #667eea;
+            cursor: pointer;
+        }
+
+        .input-group input[type="file"]:hover {
+            background: #e9ecef;
+            border-color: #495057;
+        }
+
+        .input-group input:focus, .input-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        /* Custom range slider styling */
+        .input-group input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: #e9ecef;
+            border: none;
+            border-radius: 3px;
+            outline: none;
+            padding: 0;
+        }
+
+        .input-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .input-group input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 3px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        .input-group input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        .canvas-container {
+            position: relative;
+            border: 3px solid #667eea;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            max-width: 100%;
+            max-height: 70vh;
+        }
+
+        #imageCanvas {
+            cursor: crosshair;
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .selection-overlay {
+            position: absolute;
+            border: 2px dashed #ff6b6b;
+            background: rgba(255, 107, 107, 0.2);
+            pointer-events: none;
+            display: none;
+        }
+
+        .hover-tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            min-width: 200px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .hover-tooltip h4 {
+            margin: 0 0 8px 0;
+            color: #4ecdc4;
+            font-size: 0.9em;
+        }
+
+        .hover-tooltip .stat-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 3px 0;
+        }
+
+        .hover-tooltip .stat-label {
+            color: #ccc;
+        }
+
+        .hover-tooltip .stat-value {
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .status-bar {
+            background: #343a40;
+            color: white;
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9em;
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #28a745;
+        }
+
+        .history-panel {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .history-item {
+            padding: 8px;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 0.8em;
+            color: #6c757d;
+        }
+
+        .history-item:last-child {
+            border-bottom: none;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #e9ecef;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .controls-panel {
+                width: 100%;
+            }
+            
+            .header h1 {
+                font-size: 1.8em;
+            }
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Interactive Pixel Removal Tool</h1>
+            <p>Select an area to detect intensity range, then remove all pixels with exact matching intensities</p>
+        </div>
+
+        <div class="main-content">
+            <div class="controls-panel">
+                <!-- Load Image Section -->
+                <div class="control-group">
+                    <h3>📁 Load Image</h3>
+                    <div class="input-group">
+                        <label for="imageFile">Upload Image:</label>
+                        <input type="file" id="imageFile" accept="image/*" onchange="handleFileSelect(event)" />
+                    </div>
+                    <button class="btn" onclick="loadDefaultImage()">Load Default (overfocus.jpg)</button>
+                </div>
+
+                <!-- Selection Tools -->
+                <div class="control-group">
+                    <h3>🔧 Selection Tools</h3>
+                    <button class="btn selected" id="rectangleBtn" onclick="setSelectionMode('rectangle')">Rectangle</button>
+                    <button class="btn" id="circleBtn" onclick="setSelectionMode('circle')">Circle</button>
+                    <button class="btn" id="polygonBtn" onclick="setSelectionMode('polygon')">Polygon</button>
+                </div>
+
+                <!-- Image Adjustments -->
+                <div class="control-group">
+                    <h3>🌈 Image Adjustments</h3>
+                    <div class="input-group">
+                        <label for="contrastSlider">Contrast: <span id="contrastValue">1.00</span></label>
+                        <input type="range" id="contrastSlider" min="0.1" max="3.0" step="0.1" value="1.0" 
+                               oninput="updateContrastDisplay()" onchange="applyContrastAdjustment()">
+                    </div>
+                    <div class="input-group">
+                        <label for="brightnessSlider">Brightness: <span id="brightnessValue">0</span></label>
+                        <input type="range" id="brightnessSlider" min="-100" max="100" step="5" value="0" 
+                               oninput="updateBrightnessDisplay()" onchange="applyContrastAdjustment()">
+                    </div>
+                    <button class="btn" onclick="resetAdjustments()" style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">Reset Adjustments</button>
+                </div>
+
+                <!-- Threshold Extraction -->
+                <div class="control-group">
+                    <h3>🎯 Threshold Extraction</h3>
+                    <div class="input-group">
+                        <label for="thresholdMode">Extraction Mode:</label>
+                        <select id="thresholdMode" onchange="updateThresholdModeDisplay()">
+                            <option value="cumulative">Cumulative (builds on previous)</option>
+                            <option value="independent">Independent (from original)</option>
+                        </select>
+                        <small style="color: #6c757d; display: block; margin-top: 5px;" id="thresholdModeHelp">
+                            Cumulative: Each operation builds on the previous result
+                        </small>
+                    </div>
+                    <div class="input-group">
+                        <label for="minIntensity">Min Intensity: <span id="minIntensityValue">0</span></label>
+                        <input type="range" id="minIntensity" min="0" max="255" step="1" value="0" 
+                               oninput="updateMinIntensityDisplay()">
+                    </div>
+                    <div class="input-group">
+                        <label for="maxIntensity">Max Intensity: <span id="maxIntensityValue">255</span></label>
+                        <input type="range" id="maxIntensity" min="0" max="255" step="1" value="255" 
+                               oninput="updateMaxIntensityDisplay()">
+                    </div>
+                    <div class="input-group">
+                        <label for="thresholdColorSpace">Color Space:</label>
+                        <select id="thresholdColorSpace">
+                            <option value="gray">Grayscale</option>
+                            <option value="hsv">HSV (Brightness)</option>
+                            <option value="lab">LAB (Lightness)</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="thresholdMethod">Removal Method:</label>
+                        <select id="thresholdMethod">
+                            <option value="black">Black Fill</option>
+                            <option value="white">White Fill</option>
+                            <option value="transparent">Transparent</option>
+                            <option value="blur">Blur Effect</option>
+                            <option value="noise">Random Noise</option>
+                            <option value="mean">Mean Color</option>
+                        </select>
+                    </div>
+                    <button class="btn" onclick="applyThresholdExtraction()">Remove by Threshold</button>
+                    <button class="btn" onclick="showHistogram()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">Show Histogram</button>
+                </div>
+
+                <!-- Radial Intensity Profile Analysis -->
+                <div class="control-group">
+                    <h3>🎯 Radial Profile Analysis</h3>
+                    <div class="input-group">
+                        <label for="dropletDetectionMethod">Detection Method:</label>
+                        <select id="dropletDetectionMethod">
+                            <option value="hough">Circular Hough Transform</option>
+                            <option value="blob">Blob Detection</option>
+                            <option value="manual">Manual Center Selection</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="radialStepAngle">Angular Step: <span id="radialStepAngleValue">15</span>°</label>
+                        <input type="range" id="radialStepAngle" min="5" max="45" step="5" value="15" 
+                               oninput="updateRadialStepAngleDisplay()">
+                    </div>
+                    <div class="input-group">
+                        <label for="minDropletRadius">Min Radius: <span id="minDropletRadiusValue">20</span>px</label>
+                        <input type="range" id="minDropletRadius" min="10" max="200" step="5" value="20" 
+                               oninput="updateMinDropletRadiusDisplay()">
+                    </div>
+                    <div class="input-group">
+                        <label for="maxDropletRadius">Max Radius: <span id="maxDropletRadiusValue">150</span>px</label>
+                        <input type="range" id="maxDropletRadius" min="50" max="500" step="10" value="150" 
+                               oninput="updateMaxDropletRadiusDisplay()">
+                    </div>
+                    <button class="btn" onclick="performRadialAnalysis()" style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);">Analyze Droplet Rings</button>
+                    <button class="btn" onclick="showRadialProfile()" style="background: linear-gradient(135deg, #4ecdc4 0%, #44b3a0 100%);">Show Profile Plot</button>
+                    <button class="btn" onclick="showRadialVisualization()" style="background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);">Show Circle Overlay</button>
+                    
+                    <div style="margin-top: 15px;">
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9em;">
+                            <input type="checkbox" id="showRadialLines" checked style="transform: scale(1.1);">
+                            <span>Show radial lines</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9em; margin-top: 5px;">
+                            <input type="checkbox" id="showRingBoundaries" checked style="transform: scale(1.1);">
+                            <span>Show ring boundaries</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9em; margin-top: 5px;">
+                            <input type="checkbox" id="showLabels" checked style="transform: scale(1.1);">
+                            <span>Show labels</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- SAM Segmentation -->
+                <div class="control-group">
+                    <h3>🤖 SAM Droplet Segmentation</h3>
+                    <p style="color: #666; font-size: 0.9em; margin: 10px 0;">
+                        Automatically segments and displays droplets using Meta's SAM model with quality filters:
+                        <br>• 🚫 Edge removal (excludes border-touching masks)
+                        <br>• ⭕ Circularity filter (>50% circular shapes only)
+                        <br>• 📏 Size filtering (100-50,000 pixels)
+                        <br>• 🎯 High-quality SAM masks only
+                    </p>
+                    
+                    <button class="btn" onclick="performSAMSegmentation()" style="background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);">
+                        🎯 Segment & Display Droplets
+                    </button>
+                    
+                    <div style="margin-top: 15px;">
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9em;">
+                            <input type="checkbox" id="enableHoverPreview" checked style="transform: scale(1.1);">
+                            <span>Enable hover preview & mask interaction</span>
+                        </label>
+                        <small style="display: block; color: #666; font-size: 0.8em; margin-top: 5px;">
+                            After segmentation: hover for details, click masks to remove/restore
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Removal Methods -->
+                <div class="control-group">
+                    <h3>🎭 Selection-Based Removal</h3>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <button id="selectionToggleBtn" class="btn" onclick="toggleSelectionTools()" 
+                                style="background: linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%); margin-bottom: 10px;">
+                            🔒 Enable Selection Tools
+                        </button>
+                        <small id="selectionStatus" style="display: block; color: #666; font-size: 0.8em;">
+                            Selection tools are disabled. Click above to enable.
+                        </small>
+                    </div>
+                    
+                    <div id="selectionControls" style="opacity: 0.5; pointer-events: none;">
+                        <select id="removalMethod">
+                            <option value="black">Black Fill</option>
+                            <option value="white">White Fill</option>
+                            <option value="transparent">Transparent</option>
+                            <option value="blur">Blur Effect</option>
+                            <option value="noise">Random Noise</option>
+                        </select>
+                        <button class="btn" onclick="processSelection()">🎯 Apply to Selection</button>
+                    </div>
+                </div>
+
+
+
+                <!-- Actions -->
+                <div class="control-group">
+                    <h3>⚡ Actions</h3>
+                    <button class="btn btn-danger" onclick="resetImage()">Reset to Original</button>
+                    <button class="btn" onclick="undoLastOperation()" id="undoBtn" style="background: linear-gradient(135deg, #ffc107 0%, #ff8f00 100%);">Undo Last</button>
+                    <button class="btn btn-success" onclick="saveImage()">Save Result</button>
+                    <div style="margin-top: 10px;">
+                        <label style="display: flex; align-items: center; gap: 8px; font-size: 0.9em;">
+                            <input type="checkbox" id="continuousMode" checked style="transform: scale(1.2);">
+                            <span>Keep removing after each operation</span>
+                        </label>
+                        <small style="color: #6c757d; display: block; margin-top: 5px;">
+                            When checked, you can select and remove multiple areas consecutively
+                        </small>
+                    </div>
+                </div>
+
+                <!-- History -->
+                <div class="control-group">
+                    <h3>📜 History</h3>
+                    <div class="history-panel" id="historyPanel">
+                        <div class="history-item">No operations yet</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="image-panel">
+                <div id="alertContainer"></div>
+                
+                <div class="loading" id="loadingIndicator">
+                    <div class="spinner"></div>
+                    <p>Processing...</p>
+                </div>
+
+                <div class="canvas-container" id="canvasContainer">
+                    <canvas id="imageCanvas"></canvas>
+                    <div class="selection-overlay" id="selectionOverlay"></div>
+                    <div class="hover-tooltip" id="hoverTooltip"></div>
+                </div>
+
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-indicator"></span>
+                <span id="statusText">Ready - Load an image to start</span>
+            </div>
+            <div class="status-item">
+                <span>Selection: <span id="selectionMode">Rectangle</span></span>
+            </div>
+            <div class="status-item">
+                <span>Coordinates: <span id="coordinates">-</span></span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let selectionMode = 'rectangle';
+        let isSelecting = false;
+        let startX, startY, currentX, currentY;
+        let polygonPoints = [];
+        let canvas, ctx;
+        let currentImage = null;
+        let selectionToolsEnabled = false; // Start disabled
+        let samMaskMode = false; // Track if we're in SAM mask interaction mode
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            canvas = document.getElementById('imageCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // Load default image on startup
+            loadDefaultImage();
+            
+            // Canvas event listeners
+            canvas.addEventListener('mousedown', handleMouseDown);
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseup', handleMouseUp);
+            canvas.addEventListener('click', handleCanvasClick);
+            
+
+            
+            // Initialize undo button state
+            document.getElementById('undoBtn').style.opacity = '0.5';
+            document.getElementById('undoBtn').disabled = true;
+        });
+
+        // Handle file selection
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                uploadImage(file);
+            }
+        }
+
+        // Upload selected image file
+        async function uploadImage(file) {
+            showLoading(true);
+            updateStatus('Uploading image...');
+
+            try {
+                const formData = new FormData();
+                formData.append('image', file);
+
+                const response = await fetch('/upload_image', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.image);
+                    showAlert('Image uploaded successfully!', 'success');
+                    updateStatus(`Image loaded: ${result.dimensions.width}x${result.dimensions.height}`);
+                    
+                    // Sync contrast sliders with server values
+                    if (result.current_contrast !== undefined) {
+                        document.getElementById('contrastSlider').value = result.current_contrast;
+                        updateContrastDisplay();
+                    }
+                    if (result.current_brightness !== undefined) {
+                        document.getElementById('brightnessSlider').value = result.current_brightness;
+                        updateBrightnessDisplay();
+                    }
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to upload image');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Load default image (overfocus.jpg)
+        async function loadDefaultImage() {
+            showLoading(true);
+            updateStatus('Loading default image...');
+
+            try {
+                const response = await fetch('/load_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image_path: '' })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.image);
+                    showAlert('Default image loaded successfully!', 'success');
+                    updateStatus(`Image loaded: ${result.dimensions.width}x${result.dimensions.height}`);
+                    
+                    // Sync contrast sliders with server values
+                    if (result.current_contrast !== undefined) {
+                        document.getElementById('contrastSlider').value = result.current_contrast;
+                        updateContrastDisplay();
+                    }
+                    if (result.current_brightness !== undefined) {
+                        document.getElementById('brightnessSlider').value = result.current_brightness;
+                        updateBrightnessDisplay();
+                    }
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to load default image');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Display image on canvas
+        function displayImage(imageBase64) {
+            const img = new Image();
+            img.onload = function() {
+                // Resize canvas to fit image
+                const maxWidth = 800;
+                const maxHeight = 600;
+                let { width, height } = img;
+                
+                if (width > maxWidth || height > maxHeight) {
+                    const ratio = Math.min(maxWidth / width, maxHeight / height);
+                    width *= ratio;
+                    height *= ratio;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+                currentImage = img;
+                
+                updateProgress(100);
+            };
+            img.src = imageBase64;
+        }
+
+        // Set selection mode
+        function setSelectionMode(mode) {
+            selectionMode = mode;
+            polygonPoints = [];
+            
+            // Update button states
+            document.querySelectorAll('.controls-panel .btn').forEach(btn => {
+                btn.classList.remove('selected');
+            });
+            document.getElementById(mode + 'Btn').classList.add('selected');
+            
+            document.getElementById('selectionMode').textContent = mode.charAt(0).toUpperCase() + mode.slice(1);
+            updateStatus(`Selection mode: ${mode}`);
+        }
+
+        // Mouse event handlers
+        function handleMouseDown(e) {
+            // Check if selection tools are enabled
+            if (!selectionToolsEnabled) return;
+            
+            if (selectionMode === 'polygon') return;
+            
+            const rect = canvas.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+            isSelecting = true;
+            
+            hideSelectionOverlay();
+        }
+
+        function handleMouseMove(e) {
+            const rect = canvas.getBoundingClientRect();
+            currentX = e.clientX - rect.left;
+            currentY = e.clientY - rect.top;
+            
+            // Update coordinates display
+            document.getElementById('coordinates').textContent = `${Math.round(currentX)}, ${Math.round(currentY)}`;
+            
+            // Only handle selection if tools are enabled
+            if (!selectionToolsEnabled || !isSelecting) return;
+            
+            if (selectionMode === 'rectangle') {
+                showRectangleSelection();
+            } else if (selectionMode === 'circle') {
+                showCircleSelection();
+            }
+        }
+
+        function handleMouseUp(e) {
+            if (!selectionToolsEnabled || !isSelecting) return;
+            isSelecting = false;
+            
+            // Apply pixel removal
+            applyPixelRemoval();
+        }
+
+        function handleCanvasClick(e) {
+            if (!selectionToolsEnabled || selectionMode !== 'polygon') return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            polygonPoints.push({ x, y });
+            
+            // Double-click to finish polygon
+            if (e.detail === 2 && polygonPoints.length >= 3) {
+                applyPixelRemoval();
+                polygonPoints = [];
+            }
+        }
+
+        // Show selection overlays
+        function showRectangleSelection() {
+            const overlay = document.getElementById('selectionOverlay');
+            const left = Math.min(startX, currentX);
+            const top = Math.min(startY, currentY);
+            const width = Math.abs(currentX - startX);
+            const height = Math.abs(currentY - startY);
+            
+            overlay.style.left = left + 'px';
+            overlay.style.top = top + 'px';
+            overlay.style.width = width + 'px';
+            overlay.style.height = height + 'px';
+            overlay.style.borderRadius = '4px';
+            overlay.style.display = 'block';
+        }
+
+        function showCircleSelection() {
+            const overlay = document.getElementById('selectionOverlay');
+            const radius = Math.sqrt(Math.pow(currentX - startX, 2) + Math.pow(currentY - startY, 2));
+            const size = radius * 2;
+            
+            overlay.style.left = (startX - radius) + 'px';
+            overlay.style.top = (startY - radius) + 'px';
+            overlay.style.width = size + 'px';
+            overlay.style.height = size + 'px';
+            overlay.style.borderRadius = '50%';
+            overlay.style.display = 'block';
+        }
+
+        function hideSelectionOverlay() {
+            document.getElementById('selectionOverlay').style.display = 'none';
+        }
+
+        // Apply pixel removal
+        async function applyPixelRemoval() {
+            showLoading(true);
+            updateStatus('Removing pixels...');
+            
+            let selectionData = { type: selectionMode, coordinates: [] };
+            
+            if (selectionMode === 'rectangle') {
+                const left = Math.min(startX, currentX);
+                const top = Math.min(startY, currentY);
+                const right = Math.max(startX, currentX);
+                const bottom = Math.max(startY, currentY);
+                selectionData.coordinates = [left, top, right, bottom];
+                
+            } else if (selectionMode === 'circle') {
+                const radius = Math.sqrt(Math.pow(currentX - startX, 2) + Math.pow(currentY - startY, 2));
+                selectionData.coordinates = [startX, startY, radius];
+                
+            } else if (selectionMode === 'polygon') {
+                selectionData.coordinates = [];
+                polygonPoints.forEach(point => {
+                    selectionData.coordinates.push(point.x, point.y);
+                });
+            }
+            
+            const removalMethod = document.getElementById('removalMethod').value;
+            
+            try {
+                const response = await fetch('/remove_pixels', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        selection: selectionData,
+                        method: removalMethod
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.image);
+                    updateHistory(result.history);
+                    showAlert('Pixels removed successfully! Select another area to continue removing.', 'success');
+                    updateStatus('Pixels removed - Ready for next selection');
+                    
+                    // Enable undo button
+                    document.getElementById('undoBtn').style.opacity = '1';
+                    document.getElementById('undoBtn').disabled = false;
+                    
+                    // Check if continuous mode is enabled
+                    const continuousMode = document.getElementById('continuousMode').checked;
+                    if (continuousMode) {
+                        updateStatus('Continuous mode: Select another area to remove more pixels');
+                    }
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to remove pixels');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+                hideSelectionOverlay();
+            }
+        }
+
+        // Reset image
+        async function resetImage() {
+            showLoading(true);
+            updateStatus('Resetting image...');
+
+            try {
+                const response = await fetch('/reset_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.image);
+                    clearHistory();
+                    showAlert('Image reset to original!', 'success');
+                    updateStatus('Image reset');
+                    
+                    // Sync contrast sliders with reset values
+                    if (result.current_contrast !== undefined) {
+                        document.getElementById('contrastSlider').value = result.current_contrast;
+                        updateContrastDisplay();
+                    }
+                    if (result.current_brightness !== undefined) {
+                        document.getElementById('brightnessSlider').value = result.current_brightness;
+                        updateBrightnessDisplay();
+                    }
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to reset image');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Undo last operation
+        async function undoLastOperation() {
+            showLoading(true);
+            updateStatus('Undoing last operation...');
+
+            try {
+                const response = await fetch('/undo_last', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.image);
+                    updateHistory(result.history);
+                    showAlert('Last operation undone!', 'success');
+                    updateStatus('Operation undone');
+                    
+                    // Disable undo button if no more operations to undo
+                    if (!result.can_undo_more) {
+                        document.getElementById('undoBtn').style.opacity = '0.5';
+                        document.getElementById('undoBtn').disabled = true;
+                    }
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to undo operation');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Save image
+        async function saveImage() {
+            showLoading(true);
+            updateStatus('Saving image...');
+
+            try {
+                const response = await fetch('/save_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(`Image saved: ${result.saved_path}`, 'success');
+                    updateStatus('Image saved');
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to save image');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // UI Helper functions
+        function showAlert(message, type) {
+            const container = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            
+            container.innerHTML = '';
+            container.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        function showLoading(show) {
+            document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
+        }
+
+        function updateStatus(text) {
+            document.getElementById('statusText').textContent = text;
+        }
+
+        function updateProgress(percent) {
+            document.getElementById('progressFill').style.width = percent + '%';
+            setTimeout(() => {
+                document.getElementById('progressFill').style.width = '0%';
+            }, 1000);
+        }
+
+        function updateHistory(history) {
+            const panel = document.getElementById('historyPanel');
+            panel.innerHTML = '';
+            
+            if (history && history.length > 0) {
+                history.slice(-5).forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'history-item';
+                    
+                    if (item.method === 'contrast_adjustment') {
+                        div.innerHTML = `<strong>${item.timestamp}</strong> - ${item.description}`;
+                    } else if (item.method === 'threshold_extraction') {
+                        const modeDisplay = item.threshold_mode ? `[${item.threshold_mode}]` : '';
+                        div.innerHTML = `<strong>${item.timestamp}</strong> - ${item.description} ${modeDisplay} (${item.affected_pixels} pixels, ${item.extraction_percentage}%)`;
+                    } else {
+                        div.innerHTML = `<strong>${item.timestamp}</strong> - ${item.method} (${item.affected_pixels} pixels)`;
+                    }
+                    
+                    panel.appendChild(div);
+                });
+            } else {
+                panel.innerHTML = '<div class="history-item">No operations yet</div>';
+            }
+        }
+
+        function clearHistory() {
+            document.getElementById('historyPanel').innerHTML = '<div class="history-item">No operations yet</div>';
+        }
+
+        // Contrast and brightness adjustment functions
+        function updateContrastDisplay() {
+            const slider = document.getElementById('contrastSlider');
+            const display = document.getElementById('contrastValue');
+            display.textContent = parseFloat(slider.value).toFixed(2);
+        }
+
+        function updateBrightnessDisplay() {
+            const slider = document.getElementById('brightnessSlider');
+            const display = document.getElementById('brightnessValue');
+            display.textContent = slider.value;
+        }
+
+        async function applyContrastAdjustment() {
+            const contrast = parseFloat(document.getElementById('contrastSlider').value);
+            const brightness = parseInt(document.getElementById('brightnessSlider').value);
+            
+            showLoading(true);
+            updateStatus('Adjusting image contrast and brightness...');
+
+            try {
+                const response = await fetch('/adjust_contrast', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        contrast: contrast,
+                        brightness: brightness
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.image);
+                    updateHistory(result.history);
+                    showAlert(result.message, 'success');
+                    updateStatus(`Adjustments applied - Contrast: ${result.applied_contrast.toFixed(2)}, Brightness: ${result.applied_brightness}`);
+                    
+                    // Enable undo button
+                    document.getElementById('undoBtn').style.opacity = '1';
+                    document.getElementById('undoBtn').disabled = false;
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to adjust image');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function resetAdjustments() {
+            // Reset sliders to default values
+            document.getElementById('contrastSlider').value = '1.0';
+            document.getElementById('brightnessSlider').value = '0';
+            
+            // Update displays
+            updateContrastDisplay();
+            updateBrightnessDisplay();
+            
+            // Apply the reset values
+            applyContrastAdjustment();
+        }
+
+        // Threshold extraction functions
+        function updateMinIntensityDisplay() {
+            const slider = document.getElementById('minIntensity');
+            const display = document.getElementById('minIntensityValue');
+            display.textContent = slider.value;
+            
+            // Ensure min <= max
+            const maxSlider = document.getElementById('maxIntensity');
+            if (parseInt(slider.value) > parseInt(maxSlider.value)) {
+                maxSlider.value = slider.value;
+                updateMaxIntensityDisplay();
+            }
+        }
+
+        function updateMaxIntensityDisplay() {
+            const slider = document.getElementById('maxIntensity');
+            const display = document.getElementById('maxIntensityValue');
+            display.textContent = slider.value;
+            
+            // Ensure max >= min
+            const minSlider = document.getElementById('minIntensity');
+            if (parseInt(slider.value) < parseInt(minSlider.value)) {
+                minSlider.value = slider.value;
+                updateMinIntensityDisplay();
+            }
+        }
+
+        function updateThresholdModeDisplay() {
+            const mode = document.getElementById('thresholdMode').value;
+            const helpText = document.getElementById('thresholdModeHelp');
+            
+            if (mode === 'cumulative') {
+                helpText.textContent = 'Cumulative: Each operation builds on the previous result';
+            } else {
+                helpText.textContent = 'Independent: Resets to original and applies only current extraction';
+            }
+        }
+
+        async function applyThresholdExtraction() {
+            const minIntensity = parseInt(document.getElementById('minIntensity').value);
+            const maxIntensity = parseInt(document.getElementById('maxIntensity').value);
+            const colorSpace = document.getElementById('thresholdColorSpace').value;
+            const method = document.getElementById('thresholdMethod').value;
+            const mode = document.getElementById('thresholdMode').value;
+            
+            showLoading(true);
+            updateStatus(`Applying ${mode} threshold extraction...`);
+
+            try {
+                const response = await fetch('/remove_by_threshold', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        min_intensity: minIntensity,
+                        max_intensity: maxIntensity,
+                        method: method,
+                        color_space: colorSpace,
+                        threshold_mode: mode
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.image);
+                    updateHistory(result.history);
+                    showAlert(result.message, 'success');
+                    updateStatus(`${mode.charAt(0).toUpperCase() + mode.slice(1)} threshold extraction applied: ${result.min_intensity}-${result.max_intensity}`);
+                    
+                    // Enable undo button
+                    document.getElementById('undoBtn').style.opacity = '1';
+                    document.getElementById('undoBtn').disabled = false;
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to apply threshold extraction');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function showHistogram() {
+            const colorSpace = document.getElementById('thresholdColorSpace').value;
+            
+            try {
+                const response = await fetch('/get_histogram', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        color_space: colorSpace
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayHistogramModal(result.histogram_data);
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+
+        function displayHistogramModal(histogramData) {
+            // Create a simple histogram display
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: white;
+                padding: 20px;
+                border-radius: 10px;
+                max-width: 80%;
+                max-height: 80%;
+                overflow: auto;
+            `;
+            
+            // Create simple text-based histogram
+            let histogramText = `<h3>Intensity Histogram (${histogramData.color_space})</h3><pre style="font-family: monospace; font-size: 12px;">`;
+            const histogram = histogramData.histogram;
+            const maxCount = Math.max(...histogram);
+            
+            for (let i = 0; i < histogram.length; i += 5) { // Show every 5th value for brevity
+                const count = histogram[i];
+                const barLength = Math.round((count / maxCount) * 50);
+                const bar = '█'.repeat(barLength);
+                histogramText += `${i.toString().padStart(3)}: ${bar} (${count})\\n`;
+            }
+            histogramText += '</pre>';
+            
+            histogramText += `<p><strong>Total pixels:</strong> ${histogram.reduce((a, b) => a + b, 0)}</p>`;
+            histogramText += `<p><strong>Color space:</strong> ${histogramData.color_space}</p>`;
+            histogramText += '<button onclick="this.parentElement.parentElement.remove()" style="margin-top: 10px; padding: 8px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>';
+            
+            content.innerHTML = histogramText;
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Close on click outside
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+
+        // Radial Analysis UI Functions
+        function updateRadialStepAngleDisplay() {
+            const slider = document.getElementById('radialStepAngle');
+            const display = document.getElementById('radialStepAngleValue');
+            display.textContent = slider.value;
+        }
+
+        function updateMinDropletRadiusDisplay() {
+            const slider = document.getElementById('minDropletRadius');
+            const display = document.getElementById('minDropletRadiusValue');
+            display.textContent = slider.value;
+        }
+
+        function updateMaxDropletRadiusDisplay() {
+            const slider = document.getElementById('maxDropletRadius');
+            const display = document.getElementById('maxDropletRadiusValue');
+            display.textContent = slider.value;
+        }
+
+        function toggleSelectionTools() {
+            selectionToolsEnabled = !selectionToolsEnabled;
+            
+            const toggleBtn = document.getElementById('selectionToggleBtn');
+            const statusText = document.getElementById('selectionStatus');
+            const controls = document.getElementById('selectionControls');
+            
+            if (selectionToolsEnabled) {
+                // Enable selection tools
+                toggleBtn.innerHTML = '🔓 Disable Selection Tools';
+                toggleBtn.style.background = 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+                statusText.textContent = 'Selection tools are enabled. Click and drag on image to select areas.';
+                statusText.style.color = '#27ae60';
+                controls.style.opacity = '1';
+                controls.style.pointerEvents = 'auto';
+            } else {
+                // Disable selection tools
+                toggleBtn.innerHTML = '🔒 Enable Selection Tools';
+                toggleBtn.style.background = 'linear-gradient(135deg, #95a5a6 0%, #7f8c8d 100%)';
+                statusText.textContent = 'Selection tools are disabled. Click above to enable.';
+                statusText.style.color = '#666';
+                controls.style.opacity = '0.5';
+                controls.style.pointerEvents = 'none';
+                
+                // Clear any active selection
+                clearSelection();
+            }
+        }
+
+        function processSelection() {
+            if (!selectionToolsEnabled) {
+                showAlert('Selection tools are disabled. Please enable them first.', 'warning');
+                return;
+            }
+            
+            // Use the existing applyPixelRemoval function
+            applyPixelRemoval();
+        }
+
+
+
+        async function performRadialAnalysis() {
+            const detectionMethod = document.getElementById('dropletDetectionMethod').value;
+            const stepAngle = parseInt(document.getElementById('radialStepAngle').value);
+            const minRadius = parseInt(document.getElementById('minDropletRadius').value);
+            const maxRadius = parseInt(document.getElementById('maxDropletRadius').value);
+            
+            showLoading(true);
+            updateStatus('Performing radial intensity profile analysis...');
+
+            try {
+                const response = await fetch('/radial_analysis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        detection_method: detectionMethod,
+                        step_angle: stepAngle,
+                        min_radius: minRadius,
+                        max_radius: maxRadius
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    showAlert(`Radial analysis completed! Found ${result.droplets_count} droplet(s)`, 'success');
+                    updateStatus(`Analysis complete: ${result.droplets_count} droplet(s) analyzed`);
+                    
+                    // Display results
+                    displayRadialAnalysisResults(result);
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to perform radial analysis');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function showRadialProfile() {
+            try {
+                const response = await fetch('/get_radial_profile', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayRadialProfileModal(result.profile_data);
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+
+        async function showRadialVisualization() {
+            const showRadialLines = document.getElementById('showRadialLines').checked;
+            const showRingBoundaries = document.getElementById('showRingBoundaries').checked;
+            const showLabels = document.getElementById('showLabels').checked;
+            
+            showLoading(true);
+            updateStatus('Generating circle visualization...');
+
+            try {
+                const response = await fetch('/get_radial_visualization', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        show_radial_lines: showRadialLines,
+                        show_rings: showRingBoundaries,
+                        show_labels: showLabels
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.visualization_image);
+                    showAlert(`Visualization created! Showing ${result.droplets_count} droplet(s) with annotations`, 'success');
+                    updateStatus(`Visualization displayed: ${result.droplets_count} droplet(s) annotated`);
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to create visualization');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        async function performSAMSegmentation() {
+            showLoading(true);
+            updateStatus('Performing SAM droplet segmentation with quality filters...');
+
+            try {
+                const response = await fetch('/sam_segmentation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    if (result.masks_count > 0) {
+                        // Automatically display the overlay image
+                        if (result.overlay_image) {
+                            displayImage(result.overlay_image);
+                            
+                            // Enable SAM mask interaction mode
+                            samMaskMode = true;
+                            
+                            // Enable hover preview and click handling
+                            if (document.getElementById('enableHoverPreview').checked) {
+                                enableSAMMaskInteraction();
+                            }
+                        }
+                        
+                        showAlert(`SAM segmentation completed! Found ${result.masks_count} high-quality droplet(s)`, 'success');
+                        updateStatus(`SAM analysis complete: ${result.masks_count} filtered mask(s) displayed`);
+                        
+                        // Display detailed results
+                        displaySAMResults(result);
+                    } else {
+                        showAlert('No droplets found that meet the quality criteria (edge-free, circular >50%, proper size)', 'warning');
+                        updateStatus('No qualifying droplets detected');
+                    }
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                    updateStatus('Failed to perform SAM segmentation');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+                updateStatus('Network error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+
+
+        function enableSAMMaskInteraction() {
+            const canvas = document.getElementById('imageCanvas');
+            
+            // Remove existing listeners
+            canvas.removeEventListener('mousemove', handleSAMMaskHover);
+            canvas.removeEventListener('mouseleave', hideMaskTooltip);
+            canvas.removeEventListener('click', handleSAMMaskClick);
+            
+            // Add new listeners for SAM mask interaction
+            canvas.addEventListener('mousemove', handleSAMMaskHover);
+            canvas.addEventListener('mouseleave', hideMaskTooltip);
+            canvas.addEventListener('click', handleSAMMaskClick);
+            
+            // Update cursor to show clickable state
+            canvas.style.cursor = 'pointer';
+        }
+
+        function disableSAMMaskInteraction() {
+            const canvas = document.getElementById('imageCanvas');
+            
+            // Remove SAM listeners
+            canvas.removeEventListener('mousemove', handleSAMMaskHover);
+            canvas.removeEventListener('mouseleave', hideMaskTooltip);
+            canvas.removeEventListener('click', handleSAMMaskClick);
+            
+            // Reset cursor
+            canvas.style.cursor = 'default';
+            
+            samMaskMode = false;
+        }
+
+        async function handleSAMMaskHover(e) {
+            if (!samMaskMode || !document.getElementById('enableHoverPreview').checked) {
+                return;
+            }
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            try {
+                const response = await fetch('/get_mask_at_point', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        x: x,
+                        y: y
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success && result.has_mask) {
+                    showSAMMaskTooltip(e, result.mask_stats);
+                    canvas.style.cursor = 'pointer';
+                } else {
+                    hideMaskTooltip();
+                    canvas.style.cursor = 'default';
+                }
+            } catch (error) {
+                // Silently handle errors to avoid spam
+                hideMaskTooltip();
+                canvas.style.cursor = 'default';
+            }
+        }
+
+        async function handleSAMMaskClick(e) {
+            if (!samMaskMode) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            try {
+                const response = await fetch('/toggle_mask', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        x: x,
+                        y: y
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success && result.mask_toggled) {
+                    // Update the displayed image
+                    if (result.overlay_image) {
+                        displayImage(result.overlay_image);
+                    }
+                    
+                    // Show feedback message
+                    const toggleInfo = result.toggle_info;
+                    const action = toggleInfo.new_state === 'active' ? 'restored' : 'removed';
+                    showAlert(`Mask ${toggleInfo.mask_id + 1} ${action}`, 'info');
+                    updateStatus(`Mask ${toggleInfo.mask_id + 1} ${action}`);
+                    
+                } else if (result.success) {
+                    showAlert('No mask found at clicked location', 'warning');
+                }
+            } catch (error) {
+                showAlert(`Error toggling mask: ${error.message}`, 'error');
+            }
+        }
+
+        function showSAMMaskTooltip(e, maskStats) {
+            const tooltip = document.getElementById('hoverTooltip');
+            
+            const state = maskStats.state || 'active';
+            const stateIcon = state === 'active' ? '✅' : '❌';
+            const stateText = state === 'active' ? 'Active' : 'Removed';
+            const clickAction = state === 'active' ? 'Click to remove' : 'Click to restore';
+            
+            const tooltipHtml = `
+                <h4>${stateIcon} Droplet Mask ${maskStats.mask_id + 1}</h4>
+                <div class="stat-row">
+                    <span class="stat-label">Status:</span>
+                    <span class="stat-value" style="color: ${state === 'active' ? '#27ae60' : '#e74c3c'}">${stateText}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Center:</span>
+                    <span class="stat-value">(${maskStats.center_x.toFixed(0)}, ${maskStats.center_y.toFixed(0)})</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Diameter:</span>
+                    <span class="stat-value">${maskStats.diameter.toFixed(1)} px</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Area:</span>
+                    <span class="stat-value">${maskStats.area.toFixed(0)} px²</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Circularity:</span>
+                    <span class="stat-value">${(maskStats.circularity * 100).toFixed(1)}%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Mean Intensity:</span>
+                    <span class="stat-value">${maskStats.mean_intensity.toFixed(0)}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Aspect Ratio:</span>
+                    <span class="stat-value">${maskStats.aspect_ratio.toFixed(2)}</span>
+                </div>
+                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #555; font-size: 0.85em; color: #4ecdc4;">
+                    👆 ${clickAction}
+                </div>
+            `;
+            
+            tooltip.innerHTML = tooltipHtml;
+            tooltip.style.display = 'block';
+            tooltip.style.left = (e.clientX + 10) + 'px';
+            tooltip.style.top = (e.clientY - 10) + 'px';
+        }
+
+        function hideMaskTooltip() {
+            const tooltip = document.getElementById('hoverTooltip');
+            tooltip.style.display = 'none';
+        }
+
+        function displaySAMResults(results) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: white;
+                padding: 20px;
+                border-radius: 10px;
+                max-width: 90%;
+                max-height: 80%;
+                overflow: auto;
+            `;
+            
+            let resultsHtml = `<h3>🤖 SAM Segmentation Results</h3>`;
+            resultsHtml += `<p><strong>High-Quality Masks Found:</strong> ${results.masks_count}</p>`;
+            resultsHtml += `<p><strong>Filters Applied:</strong></p>`;
+            resultsHtml += `<ul style="margin-left: 20px;">`;
+            resultsHtml += `<li>✅ Edge removal (no border-touching)</li>`;
+            resultsHtml += `<li>✅ Circularity filter (>50% circular)</li>`;
+            resultsHtml += `<li>✅ Size filtering (100-50,000 pixels)</li>`;
+            resultsHtml += `<li>✅ Meta SAM quality filtering</li>`;
+            resultsHtml += `</ul>`;
+            
+            if (results.summary) {
+                resultsHtml += `<h4>Summary Statistics:</h4>`;
+                resultsHtml += `<p><strong>Average Diameter:</strong> ${results.summary.average_diameter.toFixed(1)} px</p>`;
+                resultsHtml += `<p><strong>Average Circularity:</strong> ${(results.summary.average_circularity * 100).toFixed(1)}%</p>`;
+                resultsHtml += `<p><strong>Diameter Range:</strong> ${results.summary.min_diameter.toFixed(1)} - ${results.summary.max_diameter.toFixed(1)} px</p>`;
+            }
+            
+            if (results.masks && results.masks.length > 0) {
+                resultsHtml += `<h4>Individual Masks:</h4>`;
+                results.masks.forEach((mask, index) => {
+                    resultsHtml += `
+                        <div style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 5px;">
+                            <h5>Mask ${index + 1}</h5>
+                            <p><strong>Center:</strong> (${mask.center_x.toFixed(1)}, ${mask.center_y.toFixed(1)})</p>
+                            <p><strong>Diameter:</strong> ${mask.diameter.toFixed(1)} px</p>
+                            <p><strong>Area:</strong> ${mask.area.toFixed(0)} px²</p>
+                            <p><strong>Circularity:</strong> ${(mask.circularity * 100).toFixed(1)}%</p>
+                        </div>
+                    `;
+                });
+            }
+            
+            resultsHtml += '<button onclick="this.parentElement.parentElement.remove()" style="margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>';
+            
+            content.innerHTML = resultsHtml;
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Close on click outside
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+
+        function displayRadialAnalysisResults(results) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: white;
+                padding: 20px;
+                border-radius: 10px;
+                max-width: 90%;
+                max-height: 80%;
+                overflow: auto;
+            `;
+            
+            let resultsHtml = `<h3>🎯 Radial Intensity Analysis Results</h3>`;
+            resultsHtml += `<p><strong>Droplets Found:</strong> ${results.droplets_count}</p>`;
+            resultsHtml += `<p><strong>Detection Method:</strong> ${results.detection_method}</p>`;
+            
+            if (results.droplets && results.droplets.length > 0) {
+                resultsHtml += `<h4>Droplet Details:</h4>`;
+                results.droplets.forEach((droplet, index) => {
+                    resultsHtml += `
+                        <div style="border: 1px solid #ddd; padding: 10px; margin: 10px 0; border-radius: 5px;">
+                            <h5>Droplet ${index + 1}</h5>
+                            <p><strong>Center:</strong> (${droplet.center_x.toFixed(1)}, ${droplet.center_y.toFixed(1)})</p>
+                            <p><strong>Radius:</strong> ${droplet.radius.toFixed(1)} pixels</p>
+                            ${droplet.ring_width ? `<p><strong>Ring Width:</strong> ${droplet.ring_width.toFixed(2)} pixels</p>` : ''}
+                            ${droplet.peak_intensities ? `<p><strong>Peak Intensities:</strong> ${droplet.peak_intensities.map(p => p.toFixed(1)).join(', ')}</p>` : ''}
+                        </div>
+                    `;
+                });
+            }
+            
+            resultsHtml += '<button onclick="this.parentElement.parentElement.remove()" style="margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>';
+            
+            content.innerHTML = resultsHtml;
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Close on click outside
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+
+        function displayRadialProfileModal(profileData) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: white;
+                padding: 20px;
+                border-radius: 10px;
+                max-width: 90%;
+                max-height: 80%;
+                overflow: auto;
+            `;
+            
+            let profileHtml = `<h3>📊 Radial Intensity Profile</h3>`;
+            
+            if (profileData && profileData.profiles) {
+                profileData.profiles.forEach((profile, index) => {
+                    profileHtml += `<h4>Droplet ${index + 1} Profile</h4>`;
+                    profileHtml += `<div style="border: 1px solid #ddd; padding: 10px; margin: 10px 0;">`;
+                    profileHtml += `<p><strong>Center:</strong> (${profile.center_x}, ${profile.center_y})</p>`;
+                    profileHtml += `<p><strong>Radius:</strong> ${profile.radius} pixels</p>`;
+                    
+                    // Simple ASCII plot of intensity profile
+                    profileHtml += `<h5>Intensity vs Distance:</h5>`;
+                    profileHtml += `<pre style="font-family: monospace; font-size: 10px; line-height: 1.2;">`;
+                    
+                    const distances = profile.distances || [];
+                    const intensities = profile.intensities || [];
+                    const maxIntensity = Math.max(...intensities);
+                    
+                    for (let i = 0; i < Math.min(distances.length, 50); i++) {
+                        const dist = distances[i];
+                        const intensity = intensities[i];
+                        const barLength = Math.round((intensity / maxIntensity) * 30);
+                        const bar = '█'.repeat(barLength);
+                        profileHtml += `${dist.toFixed(1).padStart(5)}: ${bar} (${intensity.toFixed(0)})\\n`;
+                    }
+                    
+                    profileHtml += `</pre>`;
+                    profileHtml += `</div>`;
+                });
+            } else {
+                profileHtml += `<p>No profile data available. Please run radial analysis first.</p>`;
+            }
+            
+            profileHtml += '<button onclick="this.parentElement.parentElement.remove()" style="margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>';
+            
+            content.innerHTML = profileHtml;
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Close on click outside
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+    </script>
+</body>
+</html>
