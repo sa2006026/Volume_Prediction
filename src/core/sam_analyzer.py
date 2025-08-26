@@ -92,8 +92,8 @@ class SAMAnalyzer:
             self.mask_generator = SamAutomaticMaskGenerator(
                 model=self.sam_model,
                 points_per_side=32,           # Good balance for droplet detection
-                crop_n_layers=3,              # Multiple crop scales
-                min_mask_region_area=100,     # Filter out very small segments
+                crop_n_layers=1,              # Multiple crop scales
+                min_mask_region_area=1,     # Filter out very small segments
                 stability_score_thresh=0.85,  # High quality masks only
                 box_nms_thresh=0.7           # Remove overlapping detections
             )
@@ -146,7 +146,7 @@ class SAMAnalyzer:
                 
                 # Filter by area - only keep reasonably sized droplets
                 area = sam_mask.get('area', 0)
-                if not (100 <= area <= 50000):
+                if not (0 <= area <= 5000000):
                     continue
                 
                 # Edge removal filter - reject masks touching image borders
