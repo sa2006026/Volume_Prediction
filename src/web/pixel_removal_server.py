@@ -954,6 +954,13 @@ def get_mask_at_point():
         mask_stats = engine.sam_analyzer.get_mask_at_point(int(x), int(y))
         
         if mask_stats:
+            # Add additional computed properties for hover display
+            mask_stats['clickable'] = True
+            mask_stats['hover_action'] = 'Click to toggle visibility'
+            mask_stats['diameter_description'] = f"Equivalent circle diameter: {mask_stats['diameter']:.1f} pixels"
+            mask_stats['area_description'] = f"Total area: {mask_stats['area']:.0f} pixels²"
+            mask_stats['quality_score'] = mask_stats['circularity'] * 0.6 + (1.0 - abs(1.0 - mask_stats['aspect_ratio'])) * 0.4
+            
             return jsonify({
                 'success': True,
                 'has_mask': True,
@@ -1015,6 +1022,85 @@ def toggle_mask():
                 'mask_toggled': False,
                 'message': 'No mask found at clicked location'
             })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_all_masks', methods=['POST'])
+def get_all_masks():
+    """Get information about all current SAM masks"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({
+                'success': True,
+                'masks_count': 0,
+                'masks': [],
+                'summary': {}
+            })
+        
+        # Get all mask statistics
+        all_masks = []
+        for i, (mask_stats, mask_state) in enumerate(zip(engine.sam_analyzer.mask_statistics, engine.sam_analyzer.mask_states)):
+            mask_info = mask_stats.copy()
+            mask_info['state'] = mask_state
+            mask_info['clickable'] = True
+            mask_info['quality_score'] = mask_stats['circularity'] * 0.6 + (1.0 - abs(1.0 - mask_stats['aspect_ratio'])) * 0.4
+            all_masks.append(mask_info)
+        
+        # Get summary
+        summary = engine.sam_analyzer.get_segmentation_summary()
+        
+        # Add state counts to summary
+        active_count = sum(1 for state in engine.sam_analyzer.mask_states if state == 'active')
+        removed_count = sum(1 for state in engine.sam_analyzer.mask_states if state == 'removed')
+        summary['active_masks'] = active_count
+        summary['removed_masks'] = removed_count
+        
+        return jsonify({
+            'success': True,
+            'masks_count': len(all_masks),
+            'masks': all_masks,
+            'summary': summary
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/reset_all_masks', methods=['POST'])
+def reset_all_masks():
+    """Reset all masks to active state"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No SAM masks available'})
+        
+        # Reset all mask states to active
+        engine.sam_analyzer.mask_states = ['active'] * len(engine.sam_analyzer.masks)
+        
+        # Create updated visualization
+        overlay_image = engine.sam_analyzer.create_mask_overlay(
+            show_labels=True,
+            alpha=0.3
+        )
+        
+        if overlay_image.size > 0:
+            # Convert to base64 for web display
+            rgb_image = cv2.cvtColor(overlay_image, cv2.COLOR_BGR2RGB)
+            pil_image = Image.fromarray(rgb_image)
+            
+            buffer = io.BytesIO()
+            pil_image.save(buffer, format='PNG')
+            image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+            overlay_b64 = f"data:image/png;base64,{image_base64}"
+        else:
+            overlay_b64 = None
+        
+        return jsonify({
+            'success': True,
+            'overlay_image': overlay_b64,
+            'message': 'All masks restored to active state',
+            'active_masks': len(engine.sam_analyzer.masks),
+            'removed_masks': 0
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
