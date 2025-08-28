@@ -870,7 +870,7 @@ def sam_segmentation():
         
         # Automatically create and return mask overlay
         overlay_image = engine.sam_analyzer.create_mask_overlay(
-            show_labels=True,
+            show_labels=False,
             alpha=0.3
         )
         
@@ -1078,7 +1078,7 @@ def reset_all_masks():
         
         # Create updated visualization
         overlay_image = engine.sam_analyzer.create_mask_overlay(
-            show_labels=True,
+            show_labels=False,
             alpha=0.3
         )
         

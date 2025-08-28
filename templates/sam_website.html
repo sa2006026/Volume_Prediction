@@ -1,0 +1,1503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 SAM Interactive Segmentation</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: flex;
+            min-height: 700px;
+        }
+
+        .controls-panel {
+            width: 380px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-right: 1px solid #e9ecef;
+            overflow-y: auto;
+            max-height: 700px;
+        }
+
+        .image-panel {
+            flex: 1;
+            padding: 30px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .control-group {
+            margin-bottom: 25px;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .control-group h3 {
+            color: #495057;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            margin: 5px;
+            min-width: 120px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 5px 15px rgba(40, 167, 69, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #ffc107 0%, #ff8f00 100%);
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e9ecef;
+            border-radius: 6px;
+            font-size: 0.9em;
+            transition: border-color 0.3s ease;
+        }
+
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 10px;
+            padding: 40px;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+            text-align: center;
+        }
+
+        .upload-area:hover {
+            border-color: #764ba2;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background: #f8f9ff;
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .input-group input[type="file"] {
+            padding: 8px;
+            background: #f8f9fa;
+            border: 2px dashed #667eea;
+            cursor: pointer;
+        }
+
+        .input-group input:focus, .input-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .canvas-container {
+            position: relative;
+            border: 3px solid #667eea;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #fff;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            max-width: 100%;
+            max-height: 600px;
+        }
+
+        #imageCanvas {
+            cursor: crosshair;
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .hover-tooltip {
+            position: absolute;
+            background: linear-gradient(135deg, rgba(0, 0, 0, 0.95) 0%, rgba(20, 20, 20, 0.95) 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 0.85em;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            min-width: 250px;
+            max-width: 350px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .hover-tooltip h4 {
+            margin: 0 0 12px 0;
+            color: #4ecdc4;
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding-bottom: 8px;
+        }
+
+        .hover-tooltip .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 6px 0;
+            padding: 3px 0;
+        }
+
+        .hover-tooltip .stat-label {
+            color: #bbb;
+            font-weight: 500;
+        }
+
+        .hover-tooltip .stat-value {
+            color: #fff;
+            font-weight: bold;
+            text-align: right;
+        }
+
+        .hover-tooltip .quality-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 5px;
+        }
+
+        .hover-tooltip .action-hint {
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            font-size: 0.8em;
+            color: #4ecdc4;
+            text-align: center;
+            font-style: italic;
+        }
+
+        .status-display {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+
+        .status-display h4 {
+            margin-bottom: 10px;
+            color: #495057;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+        }
+
+        .status-value {
+            font-weight: bold;
+        }
+
+        .parameters-display {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 0.85em;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .progress-container {
+            background: #e9ecef;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+            display: none;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e9ecef;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 15px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.2s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9rem;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .mask-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 10px;
+            background: white;
+        }
+
+        .mask-item {
+            padding: 8px;
+            border-bottom: 1px solid #e9ecef;
+            font-size: 0.85em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .mask-item:last-child {
+            border-bottom: none;
+        }
+
+        .mask-state-active {
+            color: #28a745;
+            font-weight: bold;
+        }
+
+        .mask-state-removed {
+            color: #dc3545;
+            text-decoration: line-through;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #dc3545;
+        }
+
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border-left: 4px solid #28a745;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                flex-direction: column;
+            }
+            
+            .controls-panel {
+                width: 100%;
+                max-height: none;
+            }
+            
+            .header h1 {
+                font-size: 1.8em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 SAM Interactive Segmentation</h1>
+            <p>Upload images, configure SAM parameters, and interactively manage segmentation masks</p>
+        </div>
+
+        <div class="main-content">
+            <div class="controls-panel">
+                <!-- Image Upload Section -->
+                <div class="control-group">
+                    <h3>📁 Upload Image for Analysis</h3>
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-icon">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                        </div>
+                        <h3>Drop your image here or click to browse</h3>
+                        <p>Supported formats: PNG, JPG, JPEG, TIFF, BMP, WebP</p>
+                        <input type="file" id="imageFile" class="file-input" accept="image/*">
+                    </div>
+                    <div style="text-align: center; margin-top: 15px;">
+                        <button class="btn" onclick="document.getElementById('imageFile').click()">
+                            <i class="fas fa-folder-open"></i> Browse Files
+                        </button>
+                    </div>
+                    <div id="imageInfo" style="display: none; margin-top: 15px; padding: 10px; background: #e8f5e8; border-radius: 6px; font-size: 0.85em;">
+                        <div><strong>📏 Dimensions:</strong> <span id="imageDimensions">-</span></div>
+                        <div><strong>📄 File:</strong> <span id="fileName">-</span></div>
+                    </div>
+                </div>
+
+                <!-- SAM Configuration -->
+                <div class="control-group">
+                    <h3>⚙️ SAM Configuration</h3>
+                    
+                    <div class="input-group">
+                        <label for="modelSize">Model Size:</label>
+                        <select id="modelSize">
+                            <option value="vit_b">ViT-B (Fastest, 85MB)</option>
+                            <option value="vit_l">ViT-L (Balanced, 334MB)</option>
+                            <option value="vit_h">ViT-H (Best Quality, 2.4GB)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Advanced Backend Selection -->
+                    <div class="input-group" id="backendSelection" style="display: none;">
+                        <label for="samBackend">Backend:</label>
+                        <select id="samBackend">
+                            <option value="pytorch">PyTorch (Default)</option>
+                            <option value="onnx">ONNX (Optimized)</option>
+                            <option value="tensorrt">TensorRT (Fastest)</option>
+                        </select>
+                        <small style="color: #666;">Advanced backends require additional setup</small>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="cropLayers">Crop Layers: <span id="cropLayersValue">3</span></label>
+                        <input type="range" id="cropLayers" min="1" max="5" value="3" oninput="updateCropLayersDisplay()">
+                        <small style="color: #666;">More layers = better multi-scale detection</small>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="pointsPerSide">Points per Side: <span id="pointsPerSideValue">32</span></label>
+                        <input type="range" id="pointsPerSide" min="8" max="64" step="8" value="32" oninput="updatePointsPerSideDisplay()">
+                        <small style="color: #666;">More points = denser sampling</small>
+                    </div>
+                    
+                    <!-- Advanced Options -->
+                    <div id="advancedOptions" style="display: none;">
+                        <div style="margin: 15px 0;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="performanceMode" style="transform: scale(1.1);">
+                                <span>Performance Mode</span>
+                            </label>
+                            <small style="color: #666; display: block; margin-top: 5px;">
+                                Optimize for speed over quality (faster processing)
+                            </small>
+                        </div>
+                        
+                        <div style="margin: 15px 0;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="useGpu" checked style="transform: scale(1.1);">
+                                <span>Use GPU Acceleration</span>
+                            </label>
+                            <small style="color: #666; display: block; margin-top: 5px;">
+                                Enable GPU processing if available
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-primary" onclick="runSAMSegmentation()" id="segmentBtn" disabled>
+                        🎯 Run SAM Segmentation
+                    </button>
+                    
+                    <!-- Advanced Features Toggle -->
+                    <div style="margin-top: 15px; text-align: center;">
+                        <button class="btn" onclick="toggleAdvancedFeatures()" id="advancedToggle" 
+                                style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%); font-size: 0.8em; padding: 8px 16px;">
+                            🔧 Show Advanced Options
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Segmentation Results -->
+                <div class="control-group" id="resultsPanel" style="display: none;">
+                    <h3><i class="fas fa-chart-bar"></i> Analysis Results</h3>
+                    
+                    <div class="stats-grid" id="statsGrid">
+                        <!-- Stats cards will be populated here -->
+                    </div>
+                    
+                    <div class="parameters-display" id="usedParameters">
+                        <strong>Parameters Used:</strong><br>
+                        <span id="parametersSummary">-</span>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <button class="btn" onclick="showAllMasksModal()" style="font-size: 0.8em; padding: 8px 16px;">
+                            <i class="fas fa-list"></i> View All Masks
+                        </button>
+                        <button class="btn btn-warning" onclick="resetAllMasks()" style="font-size: 0.8em; padding: 8px 16px;">
+                            <i class="fas fa-undo"></i> Reset All
+                        </button>
+                        <button class="btn" id="downloadBtn" onclick="downloadResult()" style="display: none; font-size: 0.8em; padding: 8px 16px;">
+                            <i class="fas fa-download"></i> Download Result
+                        </button>
+                    </div>
+                    
+                    <div style="background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); padding: 10px; border-radius: 6px; font-size: 0.8em;">
+                        <strong>💡 Interactive Features:</strong><br>
+                        • <strong>Hover</strong> over red masks to see details<br>
+                        • <strong>Click</strong> masks to toggle (solid ↔ dashed)<br>
+                        • Solid red masks are counted<br>
+                        • Dashed red masks are excluded
+                    </div>
+                </div>
+
+                <!-- About SAM -->
+                <div class="control-group">
+                    <h3>ℹ️ About SAM</h3>
+                    <div style="font-size: 0.85em; color: #666; line-height: 1.4;">
+                        <p><strong>Segment Anything Model (SAM)</strong> by Meta AI automatically segments objects in images.</p>
+                        <br>
+                        <p><strong>Model Sizes:</strong></p>
+                        <ul style="margin-left: 15px;">
+                            <li><strong>ViT-B:</strong> Fast, good for real-time (85MB)</li>
+                            <li><strong>ViT-L:</strong> Balanced speed/quality (334MB)</li>
+                            <li><strong>ViT-H:</strong> Best quality, slower (2.4GB)</li>
+                        </ul>
+                        <br>
+                        <p><strong>Backend Options:</strong></p>
+                        <ul style="margin-left: 15px;">
+                            <li><strong>PyTorch:</strong> Default, full compatibility</li>
+                            <li><strong>ONNX:</strong> Optimized inference, faster</li>
+                            <li><strong>TensorRT:</strong> GPU-optimized, fastest</li>
+                        </ul>
+                        <br>
+                        <p><strong>Quality Filters:</strong></p>
+                        <ul style="margin-left: 15px;">
+                            <li>Edge removal (border exclusion)</li>
+                            <li>Size filtering (100-50K pixels)</li>
+                            <li>Circularity threshold (>50%)</li>
+                            <li>Stability score filtering</li>
+                        </ul>
+                        <br>
+                        <div id="systemInfo" style="background: #e3f2fd; padding: 10px; border-radius: 6px; margin-top: 10px;">
+                            <strong>🔧 System Status:</strong><br>
+                            <span id="backendStatus">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="image-panel">
+                <div id="alertContainer"></div>
+                
+                <div class="progress-container" id="progressContainer">
+                    <div class="loading-spinner"></div>
+                    <span id="progressText">Processing image...</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <p>This may take 30-60 seconds depending on image size and SAM model</p>
+                </div>
+
+                <div class="canvas-container" id="canvasContainer" style="display: none;">
+                    <canvas id="imageCanvas"></canvas>
+                    <div class="hover-tooltip" id="hoverTooltip"></div>
+                </div>
+                
+                <div id="welcomeMessage" style="text-align: center; padding: 60px 20px; color: #666;">
+                    <h2>🖼️ Welcome to SAM Interactive Segmentation</h2>
+                    <p style="margin: 20px 0; font-size: 1.1em;">Upload an image to get started with AI-powered segmentation</p>
+                    <div style="font-size: 0.9em; line-height: 1.6;">
+                        <p>1. 📁 Upload your image using the file selector</p>
+                        <p>2. ⚙️ Configure SAM model parameters</p>
+                        <p>3. 🎯 Run segmentation to detect objects</p>
+                        <p>4. 🖱️ Interact with masks by hovering and clicking</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let canvas, ctx;
+        let currentImage = null;
+        let segmentationResults = null;
+        let maskInteractionEnabled = false;
+        let samConfig = null;
+        let advancedFeaturesVisible = false;
+        let segmentationStartTime = 0;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            canvas = document.getElementById('imageCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // Canvas event listeners for mask interaction
+            canvas.addEventListener('mousemove', handleMouseMove);
+            canvas.addEventListener('mouseleave', hideMaskTooltip);
+            canvas.addEventListener('click', handleMaskClick);
+            
+            // Initialize file upload functionality
+            initializeFileUpload();
+            
+            // Load SAM configuration
+            loadSAMConfiguration();
+        });
+
+        // Load SAM configuration from server
+        async function loadSAMConfiguration() {
+            try {
+                const response = await fetch('/get_sam_config');
+                const result = await response.json();
+                
+                if (result.success) {
+                    samConfig = result.config;
+                    updateUIFromConfig(samConfig);
+                } else {
+                    console.warn('Failed to load SAM config:', result.error);
+                }
+            } catch (error) {
+                console.warn('Could not connect to server for config:', error);
+            }
+        }
+
+        // Update UI based on SAM configuration
+        function updateUIFromConfig(config) {
+            // Show/hide advanced features based on availability
+            if (config.advanced_features_available) {
+                document.getElementById('advancedToggle').style.display = 'block';
+                console.log('✅ Advanced SAM features available:', config.available_backends);
+            } else {
+                document.getElementById('advancedToggle').style.display = 'none';
+                console.log('⚠️ Advanced SAM features not available');
+            }
+            
+            // Populate backend options
+            const backendSelect = document.getElementById('samBackend');
+            backendSelect.innerHTML = '';
+            
+            config.available_backends.forEach(backend => {
+                const option = document.createElement('option');
+                option.value = backend;
+                option.textContent = getBackendDisplayName(backend);
+                if (backend === config.current_backend) {
+                    option.selected = true;
+                }
+                backendSelect.appendChild(option);
+            });
+            
+            // Update system status
+            updateSystemStatus(config);
+        }
+
+        // Update system status display
+        function updateSystemStatus(config) {
+            const statusElement = document.getElementById('backendStatus');
+            
+            let statusText = `Available backends: ${config.available_backends.join(', ').toUpperCase()}<br>`;
+            statusText += `Current: ${config.current_backend.toUpperCase()}<br>`;
+            
+            if (config.advanced_features_available) {
+                statusText += `Advanced features: ✅ Enabled<br>`;
+                if (config.performance_mode_available) {
+                    statusText += `Performance mode: ✅ Available`;
+                }
+            } else {
+                statusText += `Advanced features: ⚠️ PyTorch only`;
+            }
+            
+            statusElement.innerHTML = statusText;
+        }
+
+        // Get user-friendly backend names
+        function getBackendDisplayName(backend) {
+            const names = {
+                'pytorch': 'PyTorch (Default)',
+                'onnx': 'ONNX (Optimized)',
+                'tensorrt': 'TensorRT (Fastest)',
+                'auto': 'Auto-Select Best'
+            };
+            return names[backend] || backend.toUpperCase();
+        }
+
+        // Toggle advanced features visibility
+        function toggleAdvancedFeatures() {
+            advancedFeaturesVisible = !advancedFeaturesVisible;
+            
+            const backendSelection = document.getElementById('backendSelection');
+            const advancedOptions = document.getElementById('advancedOptions');
+            const toggleButton = document.getElementById('advancedToggle');
+            
+            if (advancedFeaturesVisible) {
+                backendSelection.style.display = 'block';
+                advancedOptions.style.display = 'block';
+                toggleButton.textContent = '🔧 Hide Advanced Options';
+                toggleButton.style.background = 'linear-gradient(135deg, #dc3545 0%, #c82333 100%)';
+            } else {
+                backendSelection.style.display = 'none';
+                advancedOptions.style.display = 'none';
+                toggleButton.textContent = '🔧 Show Advanced Options';
+                toggleButton.style.background = 'linear-gradient(135deg, #6c757d 0%, #495057 100%)';
+            }
+        }
+
+        // Enhanced file upload handlers with drag & drop
+        function initializeFileUpload() {
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('imageFile');
+
+            // Drag and drop functionality
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('dragover');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handleFileSelect(files[0]);
+                }
+            });
+
+            uploadArea.addEventListener('click', () => {
+                fileInput.click();
+            });
+
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleFileSelect(e.target.files[0]);
+                }
+            });
+        }
+
+        function handleFileSelect(file) {
+            const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp', 'image/webp'];
+            
+            if (!allowedTypes.includes(file.type)) {
+                showError('Please select a valid image file (PNG, JPG, JPEG, TIFF, BMP, WebP)');
+                return;
+            }
+
+            if (file.size > 50 * 1024 * 1024) { // 50MB limit
+                showError('File size must be less than 50MB');
+                return;
+            }
+
+            // Update upload area to show selected file
+            const uploadIcon = document.getElementById('uploadArea').querySelector('.upload-icon');
+            const uploadText = document.getElementById('uploadArea').querySelector('h3');
+            
+            uploadIcon.innerHTML = '<i class="fas fa-file-image"></i>';
+            uploadText.textContent = `Selected: ${file.name}`;
+            
+            // Upload the file
+            uploadImage(file);
+        }
+
+        // Legacy handler for compatibility
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                handleFileSelect(file);
+            }
+        }
+
+        // Upload image to server
+        async function uploadImage(file) {
+            showLoading(true);
+            updateStatus('Uploading image...');
+
+            try {
+                const formData = new FormData();
+                formData.append('image', file);
+
+                const response = await fetch('/upload_image', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.image);
+                    document.getElementById('imageDimensions').textContent = 
+                        `${result.dimensions.width} × ${result.dimensions.height}`;
+                    document.getElementById('fileName').textContent = file.name;
+                    document.getElementById('imageInfo').style.display = 'block';
+                    document.getElementById('segmentBtn').disabled = false;
+                    document.getElementById('welcomeMessage').style.display = 'none';
+                    
+                    showSuccess(result.message);
+                } else {
+                    showError(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Display image on canvas
+        function displayImage(imageBase64) {
+            const img = new Image();
+            img.onload = function() {
+                // Calculate display size while maintaining aspect ratio
+                const maxWidth = 1000;
+                const maxHeight = 600;
+                let { width, height } = img;
+                
+                if (width > maxWidth || height > maxHeight) {
+                    const ratio = Math.min(maxWidth / width, maxHeight / height);
+                    width *= ratio;
+                    height *= ratio;
+                }
+                
+                canvas.width = width;
+                canvas.height = height;
+                ctx.drawImage(img, 0, 0, width, height);
+                currentImage = img;
+                
+                document.getElementById('canvasContainer').style.display = 'block';
+            };
+            img.src = imageBase64;
+        }
+
+        // Update display values
+        function updateCropLayersDisplay() {
+            document.getElementById('cropLayersValue').textContent = 
+                document.getElementById('cropLayers').value;
+        }
+
+        function updatePointsPerSideDisplay() {
+            document.getElementById('pointsPerSideValue').textContent = 
+                document.getElementById('pointsPerSide').value;
+        }
+
+        // Run SAM segmentation
+        async function runSAMSegmentation() {
+            segmentationStartTime = Date.now();
+            showProgress();
+            updateStatus('Running SAM segmentation...');
+
+            try {
+                const modelSize = document.getElementById('modelSize').value;
+                const cropLayers = parseInt(document.getElementById('cropLayers').value);
+                const pointsPerSide = parseInt(document.getElementById('pointsPerSide').value);
+                
+                // Get advanced parameters if available
+                let backend = 'pytorch';
+                let performanceMode = false;
+                let useGpu = true;
+                
+                if (advancedFeaturesVisible) {
+                    backend = document.getElementById('samBackend').value;
+                    performanceMode = document.getElementById('performanceMode').checked;
+                    useGpu = document.getElementById('useGpu').checked;
+                }
+
+                const requestData = {
+                    model_size: modelSize,
+                    crop_layers: cropLayers,
+                    points_per_side: pointsPerSide,
+                    backend: backend,
+                    performance_mode: performanceMode,
+                    use_gpu: useGpu
+                };
+
+                console.log('🎯 Starting SAM segmentation with config:', requestData);
+
+                const response = await fetch('/run_sam_segmentation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    if (result.masks_found) {
+                        displayImage(result.overlay_image);
+                        segmentationResults = result;
+                        
+                        // Update results panel
+                        updateResultsPanel(result);
+                        
+                        // Enable mask interaction
+                        maskInteractionEnabled = true;
+                        canvas.style.cursor = 'pointer';
+                        
+                        showSuccess(result.message);
+                    } else {
+                        showAlert(result.message, 'warning');
+                    }
+                } else {
+                    showError(`Error: ${result.error}`);
+                }
+            } catch (error) {
+                showError(`Network error: ${error.message}`);
+            } finally {
+                hideProgress();
+            }
+        }
+
+        // Update results panel
+        function updateResultsPanel(result) {
+            document.getElementById('resultsPanel').style.display = 'block';
+            
+            // Create stats cards
+            const statsGrid = document.getElementById('statsGrid');
+            const activeMasks = result.summary.active_masks || result.masks_count;
+            const removedMasks = result.summary.removed_masks || 0;
+            const avgDiameter = result.summary.average_diameter || 0;
+            const processingTime = ((Date.now() - segmentationStartTime) / 1000) || 0;
+            
+            statsGrid.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${result.masks_count}</div>
+                    <div class="stat-label">Total Masks</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: #28a745;">${activeMasks}</div>
+                    <div class="stat-label">Active Masks</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: #dc3545;">${removedMasks}</div>
+                    <div class="stat-label">Removed Masks</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${avgDiameter.toFixed(1)}</div>
+                    <div class="stat-label">Avg Diameter (px)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${processingTime.toFixed(1)}s</div>
+                    <div class="stat-label">Processing Time</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${result.parameters.model_size.toUpperCase()}</div>
+                    <div class="stat-label">SAM Model</div>
+                </div>
+            `;
+            
+            let paramSummary = `Model: ${result.parameters.model_size.toUpperCase()}, ` +
+                                `Backend: ${result.parameters.backend.toUpperCase()}, ` +
+                                `Crop Layers: ${result.parameters.crop_layers}, ` +
+                                `Points: ${result.parameters.points_per_side}`;
+            
+            if (result.parameters.performance_mode) {
+                paramSummary += `, Performance Mode: ON`;
+            }
+            if (!result.parameters.use_gpu) {
+                paramSummary += `, GPU: Disabled`;
+            }
+            
+            document.getElementById('parametersSummary').innerHTML = paramSummary;
+            
+            // Show download button
+            document.getElementById('downloadBtn').style.display = 'inline-block';
+        }
+
+        // Mouse move handler for hover tooltips
+        async function handleMouseMove(e) {
+            if (!maskInteractionEnabled) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            try {
+                const response = await fetch('/get_mask_info', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ x: x, y: y })
+                });
+
+                const result = await response.json();
+                
+                if (result.success && result.has_mask) {
+                    showMaskTooltip(e, result.mask_info);
+                    canvas.style.cursor = 'pointer';
+                } else {
+                    hideMaskTooltip();
+                    canvas.style.cursor = 'default';
+                }
+            } catch (error) {
+                hideMaskTooltip();
+            }
+        }
+
+        // Show mask tooltip
+        function showMaskTooltip(e, maskInfo) {
+            const tooltip = document.getElementById('hoverTooltip');
+            
+            const state = maskInfo.state || 'active';
+            const stateIcon = state === 'active' ? '✅' : '❌';
+            const stateText = state === 'active' ? 'Active' : 'Removed';
+            const clickAction = state === 'active' ? 'Click to remove' : 'Click to restore';
+            
+            const qualityScore = maskInfo.quality_score || 0;
+            const qualityColor = qualityScore > 0.8 ? '#27ae60' : qualityScore > 0.6 ? '#f39c12' : '#e74c3c';
+            const qualityText = qualityScore > 0.8 ? 'Excellent' : qualityScore > 0.6 ? 'Good' : 'Fair';
+            
+            const tooltipHtml = `
+                <h4>
+                    ${stateIcon} Mask ${maskInfo.mask_id + 1}
+                    <div class="quality-indicator" style="background: ${qualityColor};" title="Quality: ${qualityText}"></div>
+                </h4>
+                <div class="stat-row">
+                    <span class="stat-label">Status:</span>
+                    <span class="stat-value" style="color: ${state === 'active' ? '#27ae60' : '#e74c3c'}">${stateText}</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Center:</span>
+                    <span class="stat-value">(${maskInfo.center_x.toFixed(0)}, ${maskInfo.center_y.toFixed(0)})</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Diameter:</span>
+                    <span class="stat-value">${maskInfo.diameter.toFixed(1)} px</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Area:</span>
+                    <span class="stat-value">${maskInfo.area.toFixed(0)} px²</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Circularity:</span>
+                    <span class="stat-value">${(maskInfo.circularity * 100).toFixed(1)}%</span>
+                </div>
+                <div class="stat-row">
+                    <span class="stat-label">Quality:</span>
+                    <span class="stat-value" style="color: ${qualityColor}">${qualityText} (${(qualityScore * 100).toFixed(0)}%)</span>
+                </div>
+                <div class="action-hint">
+                    👆 ${clickAction}
+                </div>
+            `;
+            
+            tooltip.innerHTML = tooltipHtml;
+            tooltip.style.display = 'block';
+            
+            // Smart positioning
+            let left = e.clientX + 15;
+            let top = e.clientY - 10;
+            
+            const tooltipWidth = 300;
+            const tooltipHeight = 250;
+            
+            if (left + tooltipWidth > window.innerWidth) {
+                left = e.clientX - tooltipWidth - 15;
+            }
+            
+            if (top + tooltipHeight > window.innerHeight) {
+                top = e.clientY - tooltipHeight - 10;
+            }
+            
+            left = Math.max(10, left);
+            top = Math.max(10, top);
+            
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
+        }
+
+        // Hide mask tooltip
+        function hideMaskTooltip() {
+            document.getElementById('hoverTooltip').style.display = 'none';
+        }
+
+        // Handle mask click for toggling
+        async function handleMaskClick(e) {
+            if (!maskInteractionEnabled) return;
+            
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            try {
+                const response = await fetch('/toggle_mask', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ x: x, y: y })
+                });
+
+                const result = await response.json();
+                
+                if (result.success && result.mask_toggled) {
+                    displayImage(result.overlay_image);
+                    
+                    const toggleInfo = result.toggle_info;
+                    const action = toggleInfo.new_state === 'active' ? 'restored' : 'removed';
+                    const actionIcon = toggleInfo.new_state === 'active' ? '✅' : '❌';
+                    showAlert(`${actionIcon} Mask ${toggleInfo.mask_id + 1} ${action}`, 'success');
+                    
+                    // Update counters
+                    updateMaskCounts();
+                } else if (result.success) {
+                    showAlert('No mask found at clicked location', 'warning');
+                }
+            } catch (error) {
+                showAlert(`Error toggling mask: ${error.message}`, 'error');
+            }
+        }
+
+        // Update mask counts
+        async function updateMaskCounts() {
+            try {
+                const response = await fetch('/get_all_masks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success && result.summary) {
+                    document.getElementById('activeMasks').textContent = result.summary.active_masks || 0;
+                    document.getElementById('removedMasks').textContent = result.summary.removed_masks || 0;
+                }
+            } catch (error) {
+                console.warn('Failed to update mask counts:', error);
+            }
+        }
+
+        // Show all masks modal
+        async function showAllMasksModal() {
+            try {
+                const response = await fetch('/get_all_masks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayMaskListModal(result);
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+
+        // Display mask list modal
+        function displayMaskListModal(data) {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: white;
+                padding: 25px;
+                border-radius: 12px;
+                max-width: 90%;
+                max-height: 80%;
+                overflow: auto;
+            `;
+            
+            let masksHtml = `<h3>🎭 All Segmentation Masks (${data.masks_count} total)</h3>`;
+            
+            if (data.summary) {
+                masksHtml += `
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                        <strong>Summary:</strong> 
+                        ${data.summary.active_masks || 0} active, 
+                        ${data.summary.removed_masks || 0} removed | 
+                        Avg Diameter: ${data.summary.average_diameter?.toFixed(1) || 'N/A'} px | 
+                        Avg Circularity: ${((data.summary.average_circularity || 0) * 100).toFixed(1)}%
+                    </div>
+                `;
+            }
+            
+            if (data.masks && data.masks.length > 0) {
+                masksHtml += `<div style="max-height: 400px; overflow-y: auto;">`;
+                data.masks.forEach((mask, index) => {
+                    const state = mask.state || 'active';
+                    const stateIcon = state === 'active' ? '✅' : '❌';
+                    const stateColor = state === 'active' ? '#28a745' : '#dc3545';
+                    const qualityScore = mask.quality_score || 0;
+                    const qualityColor = qualityScore > 0.8 ? '#28a745' : qualityScore > 0.6 ? '#ffc107' : '#dc3545';
+                    
+                    masksHtml += `
+                        <div style="border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 8px; background: ${state === 'active' ? '#f8fff8' : '#fff8f8'};">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <h5 style="margin: 0; color: ${stateColor};">${stateIcon} Mask ${index + 1}</h5>
+                                <span style="background: ${qualityColor}; color: white; padding: 4px 10px; border-radius: 15px; font-size: 0.8em;">
+                                    ${(qualityScore * 100).toFixed(0)}% Quality
+                                </span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9em;">
+                                <span><strong>Center:</strong> (${mask.center_x.toFixed(1)}, ${mask.center_y.toFixed(1)})</span>
+                                <span><strong>Diameter:</strong> ${mask.diameter.toFixed(1)} px</span>
+                                <span><strong>Area:</strong> ${mask.area.toFixed(0)} px²</span>
+                                <span><strong>Circularity:</strong> ${(mask.circularity * 100).toFixed(1)}%</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                masksHtml += `</div>`;
+            } else {
+                masksHtml += `<p>No masks found. Try running segmentation first.</p>`;
+            }
+            
+            masksHtml += '<button onclick="this.parentElement.parentElement.remove()" style="margin-top: 20px; padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1em;">Close</button>';
+            
+            content.innerHTML = masksHtml;
+            modal.appendChild(content);
+            document.body.appendChild(modal);
+            
+            // Close on click outside
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+
+        // Reset all masks
+        async function resetAllMasks() {
+            try {
+                const response = await fetch('/reset_all_masks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    displayImage(result.overlay_image);
+                    updateMaskCounts();
+                    showAlert(result.message, 'success');
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+
+        // Enhanced progress handling
+        function showProgress() {
+            document.getElementById('progressContainer').style.display = 'block';
+            document.getElementById('resultsPanel').style.display = 'none';
+            
+            // Simulate progress
+            let progress = 0;
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            
+            const interval = setInterval(() => {
+                progress += Math.random() * 15;
+                if (progress > 90) progress = 90; // Don't complete until actual completion
+                
+                progressFill.style.width = progress + '%';
+                
+                if (progress < 30) {
+                    progressText.textContent = 'Initializing SAM model...';
+                } else if (progress < 60) {
+                    progressText.textContent = 'Generating masks with SAM...';
+                } else {
+                    progressText.textContent = 'Processing masks and calculating statistics...';
+                }
+            }, 500);
+            
+            // Store interval for cleanup
+            window.progressInterval = interval;
+        }
+
+        function hideProgress() {
+            document.getElementById('progressContainer').style.display = 'none';
+            
+            // Complete progress
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            progressFill.style.width = '100%';
+            progressText.textContent = 'Analysis completed!';
+            
+            // Clear interval
+            if (window.progressInterval) {
+                clearInterval(window.progressInterval);
+            }
+        }
+
+        function showError(message) {
+            // Remove existing messages
+            const existingMessages = document.querySelectorAll('.error-message, .success-message');
+            existingMessages.forEach(msg => msg.remove());
+            
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${message}`;
+            
+            const alertContainer = document.getElementById('alertContainer');
+            alertContainer.appendChild(errorDiv);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (errorDiv.parentNode) {
+                    errorDiv.remove();
+                }
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            // Remove existing messages
+            const existingMessages = document.querySelectorAll('.error-message, .success-message');
+            existingMessages.forEach(msg => msg.remove());
+            
+            const successDiv = document.createElement('div');
+            successDiv.className = 'success-message';
+            successDiv.innerHTML = `<i class="fas fa-check-circle"></i> ${message}`;
+            
+            const alertContainer = document.getElementById('alertContainer');
+            alertContainer.appendChild(successDiv);
+            
+            // Auto-remove after 3 seconds
+            setTimeout(() => {
+                if (successDiv.parentNode) {
+                    successDiv.remove();
+                }
+            }, 3000);
+        }
+
+        // Utility functions
+        function showAlert(message, type) {
+            if (type === 'success') {
+                showSuccess(message);
+            } else if (type === 'error') {
+                showError(message);
+            } else {
+                const container = document.getElementById('alertContainer');
+                const alert = document.createElement('div');
+                alert.className = `alert alert-${type}`;
+                alert.innerHTML = `<i class="fas fa-info-circle"></i> ${message}`;
+                
+                container.innerHTML = '';
+                container.appendChild(alert);
+                
+                setTimeout(() => {
+                    alert.remove();
+                }, 5000);
+            }
+        }
+
+        function showLoading(show) {
+            if (show) {
+                showProgress();
+            } else {
+                hideProgress();
+            }
+        }
+
+        function updateStatus(text) {
+            console.log('Status:', text);
+        }
+
+        // Add download functionality
+        function downloadResult() {
+            if (segmentationResults && segmentationResults.overlay_image) {
+                const link = document.createElement('a');
+                link.href = segmentationResults.overlay_image;
+                link.download = `sam_segmentation_${Date.now()}.png`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                showSuccess('Result image downloaded successfully!');
+            } else {
+                showError('No segmentation result available to download');
+            }
+        }
+    </script>
+</body>
+</html>

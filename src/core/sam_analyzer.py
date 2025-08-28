@@ -409,7 +409,7 @@ class SAMAnalyzer:
                 }
         return None
     
-    def create_mask_overlay(self, show_labels: bool = True, alpha: float = 0.3) -> np.ndarray:
+    def create_mask_overlay(self, show_labels: bool = False, alpha: float = 0.3) -> np.ndarray:
         """
         Create visualization overlay with all masks
         
@@ -426,17 +426,8 @@ class SAMAnalyzer:
         overlay = self.image.copy()
         mask_overlay = np.zeros_like(self.image)
         
-        # Define colors for different masks
-        colors = [
-            (255, 0, 0),    # Red
-            (0, 255, 0),    # Green
-            (0, 0, 255),    # Blue
-            (255, 255, 0),  # Cyan
-            (255, 0, 255),  # Magenta
-            (0, 255, 255),  # Yellow
-            (128, 0, 128),  # Purple
-            (255, 165, 0),  # Orange
-        ]
+        # All masks are red initially
+        red_color = (0, 0, 255)  # Red in BGR format (OpenCV uses BGR)
         
         for i, (mask, stats) in enumerate(zip(self.masks, self.mask_statistics)):
             if not stats:
@@ -446,15 +437,15 @@ class SAMAnalyzer:
             mask_state = self.mask_states[i] if i < len(self.mask_states) else 'active'
             
             if mask_state == 'active':
-                color = colors[i % len(colors)]
+                color = red_color
                 mask_alpha = alpha
                 contour_thickness = 2
                 text_color = (255, 255, 255)
             else:  # removed
-                color = (128, 128, 128)  # Gray for removed masks
-                mask_alpha = alpha * 0.3  # Much more transparent
-                contour_thickness = 1
-                text_color = (160, 160, 160)
+                color = red_color  # Keep red color but will be dashed
+                mask_alpha = alpha * 0.2  # Much more transparent for removed masks
+                contour_thickness = 2
+                text_color = (200, 200, 200)
             
             # Create colored mask
             colored_mask = np.zeros_like(self.image)
@@ -463,41 +454,16 @@ class SAMAnalyzer:
             # Add to overlay
             mask_overlay = cv2.addWeighted(mask_overlay, 1, colored_mask, mask_alpha, 0)
             
-            # Draw contour
-            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # Draw bounding box instead of contour
+            bbox = stats['bounding_box']  # [x, y, w, h]
+            x, y, w, h = bbox
             
             if mask_state == 'removed':
-                # Draw dashed contour for removed masks
-                cv2.drawContours(overlay, contours, -1, color, contour_thickness, cv2.LINE_AA)
+                # Draw dashed bounding box for removed masks
+                self._draw_dashed_rectangle(overlay, (x, y), (x + w, y + h), color, contour_thickness)
             else:
-                cv2.drawContours(overlay, contours, -1, color, contour_thickness)
-            
-            # Draw center point
-            center_x = int(stats['center_x'])
-            center_y = int(stats['center_y'])
-            
-            if mask_state == 'active':
-                cv2.circle(overlay, (center_x, center_y), 3, color, -1)
-            else:
-                cv2.circle(overlay, (center_x, center_y), 3, color, 1)  # Hollow circle for removed
-            
-            # Add labels
-            if show_labels:
-                if mask_state == 'active':
-                    label = f"M{i+1}"
-                else:
-                    label = f"M{i+1}✕"  # Add X mark for removed
-                    
-                cv2.putText(overlay, label, (center_x - 10, center_y - 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, text_color, 2)
-                
-                # Add diameter and state
-                diameter_text = f"D:{stats['diameter']:.1f}"
-                if mask_state == 'removed':
-                    diameter_text += " (OFF)"
-                    
-                cv2.putText(overlay, diameter_text, (center_x - 25, center_y + 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, text_color, 1)
+                # Draw solid bounding box for active masks
+                cv2.rectangle(overlay, (x, y), (x + w, y + h), color, contour_thickness)
         
         # Combine overlay with original image
         result = cv2.addWeighted(overlay, 1, mask_overlay, alpha, 0)
@@ -527,3 +493,201 @@ class SAMAnalyzer:
             'max_diameter': np.max(diameters) if diameters else 0,
             'std_diameter': np.std(diameters) if diameters else 0
         }
+    
+    def _draw_dashed_contours(self, image, contours, color, thickness, dash_length=10):
+        """
+        Draw dashed contours for removed masks
+        
+        Args:
+            image: Image to draw on
+            contours: List of contours
+            color: Color for the dashed lines
+            thickness: Line thickness
+            dash_length: Length of each dash
+        """
+        for contour in contours:
+            # Convert contour to a list of points
+            points = contour.reshape(-1, 2)
+            
+            # Calculate total perimeter
+            perimeter = cv2.arcLength(contour, True)
+            if perimeter == 0:
+                continue
+            
+            # Draw dashed line along the contour
+            num_points = len(points)
+            if num_points < 2:
+                continue
+            
+            # Calculate cumulative distances along the contour
+            distances = [0]
+            for i in range(1, num_points):
+                dist = np.linalg.norm(points[i] - points[i-1])
+                distances.append(distances[-1] + dist)
+            
+            # Add the distance from last point back to first (closed contour)
+            final_dist = np.linalg.norm(points[0] - points[-1])
+            total_distance = distances[-1] + final_dist
+            
+            # Draw dashed pattern
+            current_distance = 0
+            draw_dash = True
+            
+            while current_distance < total_distance:
+                next_distance = current_distance + dash_length
+                
+                # Find points at current_distance and next_distance
+                start_point = self._get_point_at_distance(points, distances, current_distance, total_distance)
+                end_point = self._get_point_at_distance(points, distances, next_distance, total_distance)
+                
+                if draw_dash:
+                    cv2.line(image, tuple(start_point.astype(int)), tuple(end_point.astype(int)), 
+                            color, thickness)
+                
+                draw_dash = not draw_dash
+                current_distance = next_distance
+    
+    def _get_point_at_distance(self, points, distances, target_distance, total_distance):
+        """
+        Get the point at a specific distance along the contour
+        
+        Args:
+            points: Array of contour points
+            distances: Cumulative distances
+            target_distance: Target distance along contour
+            total_distance: Total perimeter length
+            
+        Returns:
+            Point coordinates at the target distance
+        """
+        # Handle wrap-around for closed contours
+        if target_distance >= total_distance:
+            # Handle the segment from last point back to first
+            excess = target_distance - distances[-1]
+            last_point = points[-1]
+            first_point = points[0]
+            segment_length = np.linalg.norm(first_point - last_point)
+            
+            if segment_length == 0:
+                return first_point
+            
+            ratio = excess / segment_length
+            return last_point + ratio * (first_point - last_point)
+        
+        # Find the segment containing the target distance
+        for i in range(len(distances) - 1):
+            if distances[i] <= target_distance <= distances[i + 1]:
+                # Interpolate within this segment
+                segment_start = distances[i]
+                segment_end = distances[i + 1]
+                segment_length = segment_end - segment_start
+                
+                if segment_length == 0:
+                    return points[i]
+                
+                ratio = (target_distance - segment_start) / segment_length
+                return points[i] + ratio * (points[i + 1] - points[i])
+        
+        # Fallback to first point
+        return points[0]
+    
+    def _draw_dashed_circle(self, image, center, radius, color, thickness, dash_length=5):
+        """
+        Draw a dashed circle for removed mask center points
+        
+        Args:
+            image: Image to draw on
+            center: Center point (x, y)
+            radius: Circle radius
+            color: Color for the circle
+            thickness: Line thickness
+            dash_length: Length of each dash in degrees
+        """
+        import math
+        
+        cx, cy = center
+        
+        # Draw dashed circle using small arcs
+        for angle in range(0, 360, dash_length * 2):
+            start_angle = math.radians(angle)
+            end_angle = math.radians(angle + dash_length)
+            
+            # Calculate start and end points
+            start_x = int(cx + radius * math.cos(start_angle))
+            start_y = int(cy + radius * math.sin(start_angle))
+            end_x = int(cx + radius * math.cos(end_angle))
+            end_y = int(cy + radius * math.sin(end_angle))
+            
+            # Draw arc segment (approximate with line)
+            cv2.line(image, (start_x, start_y), (end_x, end_y), color, thickness)
+    
+    def _draw_dashed_rectangle(self, image, pt1, pt2, color, thickness, dash_length=10):
+        """
+        Draw a dashed rectangle for removed mask bounding boxes
+        
+        Args:
+            image: Image to draw on
+            pt1: Top-left corner (x, y)
+            pt2: Bottom-right corner (x, y)
+            color: Color for the rectangle
+            thickness: Line thickness
+            dash_length: Length of each dash in pixels
+        """
+        x1, y1 = pt1
+        x2, y2 = pt2
+        
+        # Draw dashed lines for each side of the rectangle
+        # Top side
+        self._draw_dashed_line(image, (x1, y1), (x2, y1), color, thickness, dash_length)
+        # Right side
+        self._draw_dashed_line(image, (x2, y1), (x2, y2), color, thickness, dash_length)
+        # Bottom side
+        self._draw_dashed_line(image, (x2, y2), (x1, y2), color, thickness, dash_length)
+        # Left side
+        self._draw_dashed_line(image, (x1, y2), (x1, y1), color, thickness, dash_length)
+    
+    def _draw_dashed_line(self, image, pt1, pt2, color, thickness, dash_length=10):
+        """
+        Draw a dashed line between two points
+        
+        Args:
+            image: Image to draw on
+            pt1: Start point (x, y)
+            pt2: End point (x, y)
+            color: Color for the line
+            thickness: Line thickness
+            dash_length: Length of each dash in pixels
+        """
+        x1, y1 = pt1
+        x2, y2 = pt2
+        
+        # Calculate line length and direction
+        dx = x2 - x1
+        dy = y2 - y1
+        length = np.sqrt(dx*dx + dy*dy)
+        
+        if length == 0:
+            return
+        
+        # Unit direction vector
+        ux = dx / length
+        uy = dy / length
+        
+        # Draw dashed pattern
+        current_distance = 0
+        draw_dash = True
+        
+        while current_distance < length:
+            next_distance = min(current_distance + dash_length, length)
+            
+            # Calculate start and end points for this segment
+            start_x = int(x1 + current_distance * ux)
+            start_y = int(y1 + current_distance * uy)
+            end_x = int(x1 + next_distance * ux)
+            end_y = int(y1 + next_distance * uy)
+            
+            if draw_dash:
+                cv2.line(image, (start_x, start_y), (end_x, end_y), color, thickness)
+            
+            draw_dash = not draw_dash
+            current_distance = next_distance
