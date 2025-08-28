@@ -311,6 +311,63 @@ def remove_masks():
         print(f"❌ Error in remove_masks endpoint: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/get_mask_preview', methods=['POST'])
+def get_mask_preview():
+    """Get mask preview for hover display at specific coordinates"""
+    try:
+        # Get SAM analyzer
+        sam_analyzer = get_sam_analyzer()
+        
+        data = request.get_json()
+        x = data.get('x', 0)
+        y = data.get('y', 0)
+        
+        if sam_analyzer is None or not hasattr(sam_analyzer, 'masks') or not sam_analyzer.masks:
+            return jsonify({
+                'success': True,
+                'has_mask': False,
+                'preview_image': None,
+                'mask_info': None
+            })
+        
+        # Find which mask contains this point
+        for i, mask in enumerate(sam_analyzer.masks):
+            if y < mask.shape[0] and x < mask.shape[1] and mask[y, x] > 0:
+                # Generate preview for this mask
+                preview_image = sam_analyzer.create_mask_preview(i, preview_size=(200, 200))
+                
+                if preview_image is not None:
+                    # Convert to base64
+                    preview_base64 = numpy_to_base64(preview_image)
+                    
+                    # Get mask info
+                    if i < len(sam_analyzer.mask_statistics):
+                        mask_info = sam_analyzer.mask_statistics[i].copy()
+                        mask_info['mask_id'] = i
+                        mask_info['state'] = (sam_analyzer.mask_states[i] 
+                                            if hasattr(sam_analyzer, 'mask_states') and i < len(sam_analyzer.mask_states) else 'active')
+                    else:
+                        mask_info = {'mask_id': i, 'state': 'active'}
+                    
+                    return jsonify({
+                        'success': True,
+                        'has_mask': True,
+                        'preview_image': f"data:image/png;base64,{preview_base64}",
+                        'mask_info': mask_info,
+                        'coordinates': {'x': x, 'y': y}
+                    })
+        
+        return jsonify({
+            'success': True,
+            'has_mask': False,
+            'preview_image': None,
+            'mask_info': None,
+            'coordinates': {'x': x, 'y': y}
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 def create_segmented_visualization(image, mask):
     """Create a visualization of the segmented image with colored masks"""
     try:

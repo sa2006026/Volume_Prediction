@@ -459,8 +459,8 @@ class SAMAnalyzer:
             x, y, w, h = bbox
             
             if mask_state == 'removed':
-                # Draw dashed bounding box for removed masks
-                self._draw_dashed_rectangle(overlay, (x, y), (x + w, y + h), color, contour_thickness)
+                # Draw dashed bounding box for removed masks with shorter dashes for more visibility
+                self._draw_dashed_rectangle(overlay, (x, y), (x + w, y + h), color, contour_thickness + 1, dash_length=8)
             else:
                 # Draw solid bounding box for active masks
                 cv2.rectangle(overlay, (x, y), (x + w, y + h), color, contour_thickness)
@@ -494,7 +494,88 @@ class SAMAnalyzer:
             'std_diameter': np.std(diameters) if diameters else 0
         }
     
-    def _draw_dashed_contours(self, image, contours, color, thickness, dash_length=10):
+    def create_mask_preview(self, mask_id: int, preview_size: tuple = (150, 150)) -> Optional[np.ndarray]:
+        """
+        Create a preview image of a specific mask for hover display
+        
+        Args:
+            mask_id: Index of the mask to preview
+            preview_size: Size of the preview image (width, height)
+            
+        Returns:
+            Preview image as numpy array, or None if mask doesn't exist
+        """
+        if (mask_id < 0 or mask_id >= len(self.masks) or 
+            mask_id >= len(self.mask_statistics) or 
+            self.image is None):
+            return None
+        
+        mask = self.masks[mask_id]
+        stats = self.mask_statistics[mask_id]
+        
+        # Get bounding box with some padding
+        bbox = stats['bounding_box']  # [x, y, w, h]
+        x, y, w, h = bbox
+        
+        # Add padding around the bounding box
+        padding = 20
+        x_start = max(0, x - padding)
+        y_start = max(0, y - padding)
+        x_end = min(self.image.shape[1], x + w + padding)
+        y_end = min(self.image.shape[0], y + h + padding)
+        
+        # Extract the region of interest from original image
+        roi_image = self.image[y_start:y_end, x_start:x_end].copy()
+        roi_mask = mask[y_start:y_end, x_start:x_end]
+        
+        if roi_image.size == 0 or roi_mask.size == 0:
+            return None
+        
+        # Create mask overlay on the ROI
+        mask_overlay = np.zeros_like(roi_image)
+        mask_color = (0, 0, 255)  # Red color for the mask
+        mask_overlay[roi_mask > 0] = mask_color
+        
+        # Blend the original ROI with mask overlay
+        alpha = 0.4
+        preview_image = cv2.addWeighted(roi_image, 1 - alpha, mask_overlay, alpha, 0)
+        
+        # Draw bounding box on the preview (adjust coordinates to ROI)
+        roi_bbox_x = x - x_start
+        roi_bbox_y = y - y_start
+        cv2.rectangle(preview_image, 
+                     (roi_bbox_x, roi_bbox_y), 
+                     (roi_bbox_x + w, roi_bbox_y + h), 
+                     mask_color, 2)
+        
+        # Resize to preview size while maintaining aspect ratio
+        h_roi, w_roi = preview_image.shape[:2]
+        target_w, target_h = preview_size
+        
+        # Calculate scaling factor to fit within target size
+        scale = min(target_w / w_roi, target_h / h_roi)
+        new_w = int(w_roi * scale)
+        new_h = int(h_roi * scale)
+        
+        # Resize the preview
+        preview_resized = cv2.resize(preview_image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        
+        # Create a canvas with the target size and center the preview
+        canvas = np.zeros((target_h, target_w, 3), dtype=np.uint8)
+        canvas.fill(32)  # Dark gray background
+        
+        # Calculate position to center the preview
+        start_y = (target_h - new_h) // 2
+        start_x = (target_w - new_w) // 2
+        canvas[start_y:start_y + new_h, start_x:start_x + new_w] = preview_resized
+        
+        # Add a border around the canvas
+        border_color = (100, 100, 100)  # Light gray border
+        cv2.rectangle(canvas, (0, 0), (target_w - 1, target_h - 1), border_color, 2)
+        
+        return canvas
+    
+    def _draw_dashed_contours(self, image, contours, color, thickness, dash_length=8):
         """
         Draw dashed contours for removed masks
         
@@ -621,7 +702,7 @@ class SAMAnalyzer:
             # Draw arc segment (approximate with line)
             cv2.line(image, (start_x, start_y), (end_x, end_y), color, thickness)
     
-    def _draw_dashed_rectangle(self, image, pt1, pt2, color, thickness, dash_length=10):
+    def _draw_dashed_rectangle(self, image, pt1, pt2, color, thickness, dash_length=8):
         """
         Draw a dashed rectangle for removed mask bounding boxes
         
@@ -646,7 +727,7 @@ class SAMAnalyzer:
         # Left side
         self._draw_dashed_line(image, (x1, y2), (x1, y1), color, thickness, dash_length)
     
-    def _draw_dashed_line(self, image, pt1, pt2, color, thickness, dash_length=10):
+    def _draw_dashed_line(self, image, pt1, pt2, color, thickness, dash_length=8):
         """
         Draw a dashed line between two points
         

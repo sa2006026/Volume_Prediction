@@ -308,6 +308,31 @@ class SAMWebEngine:
         image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
         
         return f"data:image/png;base64,{image_base64}"
+    
+    def get_mask_preview_at_point(self, x: int, y: int):
+        """Get mask preview at specific coordinates for hover display"""
+        if self.sam_analyzer is None or not self.sam_analyzer.masks:
+            return None, None
+        
+        # Find which mask contains this point
+        for i, mask in enumerate(self.sam_analyzer.masks):
+            if y < mask.shape[0] and x < mask.shape[1] and mask[y, x] > 0:
+                # Generate preview for this mask
+                preview_image = self.sam_analyzer.create_mask_preview(i, preview_size=(200, 200))
+                
+                if preview_image is not None:
+                    # Convert to base64
+                    preview_base64 = self.get_image_as_base64(preview_image)
+                    
+                    # Get mask info
+                    mask_info = self.sam_analyzer.mask_statistics[i].copy()
+                    mask_info['mask_id'] = i
+                    mask_info['state'] = (self.sam_analyzer.mask_states[i] 
+                                        if i < len(self.sam_analyzer.mask_states) else 'active')
+                    
+                    return preview_base64, mask_info
+        
+        return None, None
 
 # Global engine instance
 engine = SAMWebEngine()
@@ -542,6 +567,36 @@ def reset_all_masks():
             })
         else:
             return jsonify({'success': False, 'error': 'No masks to reset'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_mask_preview', methods=['POST'])
+def get_mask_preview():
+    """Get mask preview for hover display at specific coordinates"""
+    try:
+        data = request.get_json()
+        x = data.get('x', 0)
+        y = data.get('y', 0)
+        
+        preview_base64, mask_info = engine.get_mask_preview_at_point(int(x), int(y))
+        
+        if preview_base64 and mask_info:
+            return jsonify({
+                'success': True,
+                'has_mask': True,
+                'preview_image': preview_base64,
+                'mask_info': mask_info,
+                'coordinates': {'x': x, 'y': y}
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'has_mask': False,
+                'preview_image': None,
+                'mask_info': None,
+                'coordinates': {'x': x, 'y': y}
+            })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
