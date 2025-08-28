@@ -333,6 +333,74 @@ class SAMWebEngine:
                     return preview_base64, mask_info
         
         return None, None
+    
+    def apply_image_adjustments(self, brightness: int = 0, contrast: float = 1.0, intensity_threshold: int = -1):
+        """Apply brightness, contrast, and intensity threshold adjustments to the image"""
+        if self.original_image is None:
+            return None
+        
+        # Start with the original image
+        adjusted_image = self.original_image.copy().astype(np.float32)
+        
+        # Apply brightness adjustment (-100 to +100)
+        if brightness != 0:
+            adjusted_image = adjusted_image + brightness
+        
+        # Apply contrast adjustment (0.5 to 3.0, where 1.0 is no change)
+        if contrast != 1.0:
+            # Apply contrast around the middle value (128)
+            adjusted_image = 128 + contrast * (adjusted_image - 128)
+        
+        # Clip values to valid range
+        adjusted_image = np.clip(adjusted_image, 0, 255).astype(np.uint8)
+        
+        # Apply intensity threshold if specified
+        if intensity_threshold > 0:
+            # Create mask for pixels below threshold
+            gray_image = cv2.cvtColor(adjusted_image, cv2.COLOR_BGR2GRAY)
+            threshold_mask = gray_image < intensity_threshold
+            
+            # Set pixels below threshold to black
+            adjusted_image[threshold_mask] = [0, 0, 0]
+        
+        return adjusted_image
+    
+    def get_active_masks_region(self):
+        """Get the combined region of all active masks"""
+        if self.sam_analyzer is None or not self.sam_analyzer.masks:
+            return None
+        
+        # Create combined mask of all active masks
+        combined_mask = np.zeros(self.original_image.shape[:2], dtype=np.uint8)
+        
+        for i, (mask, state) in enumerate(zip(self.sam_analyzer.masks, self.sam_analyzer.mask_states)):
+            if state == 'active':
+                combined_mask[mask > 0] = 255
+        
+        return combined_mask
+    
+    def apply_adjustments_to_masked_region(self, brightness: int = 0, contrast: float = 1.0, intensity_threshold: int = -1):
+        """Apply image adjustments only to the active masked regions"""
+        if self.original_image is None:
+            return None
+        
+        # Get the combined active mask region
+        active_mask = self.get_active_masks_region()
+        if active_mask is None:
+            return self.original_image.copy()
+        
+        # Apply adjustments to the entire image first
+        adjusted_image = self.apply_image_adjustments(brightness, contrast, intensity_threshold)
+        if adjusted_image is None:
+            return self.original_image.copy()
+        
+        # Create result image starting with original
+        result_image = self.original_image.copy()
+        
+        # Apply adjusted pixels only where masks are active
+        result_image[active_mask > 0] = adjusted_image[active_mask > 0]
+        
+        return result_image
 
 # Global engine instance
 engine = SAMWebEngine()
@@ -597,6 +665,78 @@ def get_mask_preview():
                 'mask_info': None,
                 'coordinates': {'x': x, 'y': y}
             })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/apply_image_adjustments', methods=['POST'])
+def apply_image_adjustments():
+    """Apply brightness, contrast, and intensity threshold adjustments"""
+    try:
+        data = request.get_json()
+        brightness = data.get('brightness', 0)
+        contrast = data.get('contrast', 1.0)
+        intensity_threshold = data.get('intensity_threshold', -1)
+        apply_to_masks_only = data.get('apply_to_masks_only', False)
+        
+        if engine.original_image is None:
+            return jsonify({'success': False, 'error': 'No image loaded'})
+        
+        # Apply adjustments
+        if apply_to_masks_only:
+            adjusted_image = engine.apply_adjustments_to_masked_region(
+                brightness=int(brightness),
+                contrast=float(contrast),
+                intensity_threshold=int(intensity_threshold)
+            )
+        else:
+            adjusted_image = engine.apply_image_adjustments(
+                brightness=int(brightness),
+                contrast=float(contrast),
+                intensity_threshold=int(intensity_threshold)
+            )
+        
+        if adjusted_image is None:
+            return jsonify({'success': False, 'error': 'Failed to apply adjustments'})
+        
+        # Convert to base64
+        adjusted_base64 = engine.get_image_as_base64(adjusted_image)
+        
+        return jsonify({
+            'success': True,
+            'adjusted_image': adjusted_base64,
+            'parameters': {
+                'brightness': brightness,
+                'contrast': contrast,
+                'intensity_threshold': intensity_threshold,
+                'apply_to_masks_only': apply_to_masks_only
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_active_masks_count', methods=['POST'])
+def get_active_masks_count():
+    """Get count of active masks for next stage validation"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({
+                'success': True,
+                'active_count': 0,
+                'total_count': 0,
+                'can_proceed': False
+            })
+        
+        active_count = sum(1 for state in engine.sam_analyzer.mask_states if state == 'active')
+        total_count = len(engine.sam_analyzer.masks)
+        
+        return jsonify({
+            'success': True,
+            'active_count': active_count,
+            'total_count': total_count,
+            'can_proceed': active_count > 0
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
