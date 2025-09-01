@@ -279,6 +279,85 @@
             background: white;
             font-size: 0.85em;
         }
+        
+        .stage-info div {
+            margin: 5px 0;
+        }
+        
+        .stage-info strong {
+            color: #495057;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border: 1px solid #e9ecef;
+        }
+        
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.85em;
+            color: #6c757d;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 4px 0;
+            border-bottom: 1px solid #f8f9fa;
+        }
+        
+        .detail-label {
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .detail-value {
+            color: #6c757d;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+        
+        .input-group input[type="range"] {
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        
+        .input-group small {
+            display: block;
+            color: #6c757d;
+            font-size: 0.8em;
+            line-height: 1.4;
+        }
 
         .info-placeholder {
             color: #6c757d;
@@ -735,6 +814,29 @@
                         </button>
                     </div>
                 </div>
+                
+                <!-- Processing Stage Management -->
+                <div class="control-group">
+                    <h3>🚦 Processing Stage</h3>
+                    <div class="input-group">
+                        <label for="processingStage">Current Stage:</label>
+                        <select id="processingStage">
+                            <option value="segmentation">Segmentation</option>
+                            <option value="blob_analysis">Blob Analysis</option>
+                            <option value="removal">Removal</option>
+                        </select>
+                    </div>
+                    <div class="stage-info" style="margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 0.85em;">
+                        <div><strong>Stage:</strong> <span id="currentStageDisplay">Segmentation</span></div>
+                        <div><strong>Mask Interactions:</strong> <span id="maskInteractionsStatus">✅ Allowed</span></div>
+                    </div>
+                    <button class="btn btn-secondary" onclick="setProcessingStage()" style="font-size: 0.9em; padding: 10px 20px;">
+                        <i class="fas fa-cog"></i> Set Stage
+                    </button>
+                    <small style="color: #666; display: block; margin-top: 8px;">
+                        Control when mask interactions are allowed
+                    </small>
+                </div>
 
                 <!-- Segmentation Results -->
                 <div class="control-group" id="resultsPanel" style="display: none;">
@@ -761,12 +863,81 @@
                         </button>
                     </div>
                     
+                    <!-- Next Stage Button -->
+                    <div style="text-align: center; margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #e8f5e8 0%, #f0f8ff 100%); border-radius: 10px; border: 2px solid #28a745;">
+                        <h4 style="color: #28a745; margin-bottom: 15px;">
+                            <i class="fas fa-arrow-right"></i> Ready for Next Stage
+                        </h4>
+                        <p style="color: #495057; margin-bottom: 15px; font-size: 0.9em;">
+                            Proceed to contrast and intensity adjustment for the detected masks
+                        </p>
+                        <button class="btn btn-success" onclick="goToNextStage()" style="font-size: 1em; padding: 12px 30px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
+                            <i class="fas fa-arrow-right"></i> Go to Contrast & Intensity Stage
+                        </button>
+                    </div>
+                    
                     <div style="background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); padding: 10px; border-radius: 6px; font-size: 0.8em;">
                         <strong>💡 Interactive Features:</strong><br>
                         • <strong>Hover</strong> over bounding boxes to see preview<br>
                         • <strong>Click</strong> masks to toggle (solid ↔ dashed)<br>
                         • View mask details in preview area<br>
                         • Solid red boxes are active, dashed are removed
+                    </div>
+                </div>
+
+                <!-- Contrast & Intensity Adjustment Panel -->
+                <div class="control-group" id="contrastIntensityPanel" style="display: none;">
+                    <h3>🎨 Contrast & Intensity Adjustment</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                        Adjust image contrast and intensity for better mask visibility and analysis
+                    </p>
+                    
+                    <!-- Stored Masks Info -->
+                    <div id="storedMasksInfo" style="background: linear-gradient(135deg, #e8f5e8 0%, #f0f8ff 100%); padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #28a745;">
+                        <h5 style="color: #28a745; margin-bottom: 10px;">
+                            <i class="fas fa-database"></i> Stored Mask Information
+                        </h5>
+                        <div id="storedMasksDetails">
+                            <p style="margin: 0; color: #495057; font-size: 0.9em;">
+                                <strong>Masks stored:</strong> <span id="storedMasksCount">-</span><br>
+                                <strong>Stage:</strong> <span id="storedMasksStage">-</span>
+                            </p>
+                        </div>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="brightnessSlider">Brightness: <span id="brightnessValue">0</span></label>
+                        <input type="range" id="brightnessSlider" min="-100" max="100" value="0" oninput="updateBrightnessDisplay()">
+                        <small style="color: #666;">Adjust overall image brightness (-100 to +100)</small>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="contrastSlider">Contrast: <span id="contrastValue">1.0</span></label>
+                        <input type="range" id="contrastSlider" min="0.5" max="3.0" step="0.1" value="1.0" oninput="updateContrastDisplay()">
+                        <small style="color: #666;">Adjust image contrast (0.5 to 3.0)</small>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="intensityThreshold">Intensity Threshold: <span id="intensityValue">-1</span></label>
+                        <input type="range" id="intensityThreshold" min="-1" max="255" value="-1" oninput="updateIntensityDisplay()">
+                        <small style="color: #666;">Remove pixels below threshold (-1 = disabled)</small>
+                    </div>
+                    
+                    
+                    
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="btn btn-primary" onclick="applyImageAdjustments()" style="flex: 1;">
+                            <i class="fas fa-magic"></i> Apply Adjustments
+                        </button>
+                        <button class="btn btn-secondary" onclick="resetAdjustments()" style="flex: 1;">
+                            <i class="fas fa-undo"></i> Reset
+                        </button>
+                    </div>
+                    
+                    <div style="margin-top: 15px;">
+                        <button class="btn btn-success" onclick="proceedToRemovalStage()" style="width: 100%; padding: 12px;">
+                            <i class="fas fa-arrow-right"></i> Proceed to Removal Stage
+                        </button>
                     </div>
                 </div>
 
@@ -865,6 +1036,12 @@
         let samConfig = null;
         let advancedFeaturesVisible = false;
         let segmentationStartTime = 0;
+        
+        // Frontend mask management
+        let masks = [];  // Array of mask objects with bounding boxes and states
+        let hoveredMaskIndex = -1;  // Currently hovered mask
+        let selectedMaskIndex = -1;  // Currently selected mask
+        let canvasScale = 1;  // Canvas scale factor for coordinate conversion
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -881,6 +1058,17 @@
             
             // Load SAM configuration
             loadSAMConfiguration();
+            
+            // Load current processing stage
+            loadCurrentStage();
+            
+            // Add event listener for stage dropdown
+            const stageSelect = document.getElementById('processingStage');
+            if (stageSelect) {
+                stageSelect.addEventListener('change', function() {
+                    setProcessingStage();
+                });
+            }
         });
 
         // Load SAM configuration from server
@@ -1087,6 +1275,9 @@
         function displayImage(imageBase64) {
             const img = new Image();
             img.onload = function() {
+                // Store the image for mask drawing
+                currentImage = img;
+                
                 // Calculate display size while maintaining aspect ratio
                 const maxWidth = 1000;
                 const maxHeight = 600;
@@ -1100,10 +1291,16 @@
                 
                 canvas.width = width;
                 canvas.height = height;
-                ctx.drawImage(img, 0, 0, width, height);
-                currentImage = img;
                 
+                // Calculate scale factor for coordinate conversion
+                canvasScale = width / img.naturalWidth;
+                
+                // Draw image
+                ctx.drawImage(img, 0, 0, width, height);
+                
+                // Show image preview container
                 document.getElementById('imagePreviewContainer').style.display = 'flex';
+                document.getElementById('welcomeMessage').style.display = 'none';
             };
             img.src = imageBase64;
         }
@@ -1164,6 +1361,9 @@
                 
                 if (result.success) {
                     if (result.masks_found) {
+                        // Populate frontend mask array
+                        masks = result.masks.map(maskData => new Mask(maskData));
+                        
                         displayImage(result.overlay_image);
                         segmentationResults = result;
                         
@@ -1173,6 +1373,9 @@
                         // Enable mask interaction
                         maskInteractionEnabled = true;
                         canvas.style.cursor = 'pointer';
+                        
+                        // Draw masks on canvas
+                        drawMasks();
                         
                         showSuccess(result.message);
                     } else {
@@ -1245,33 +1448,31 @@
         }
 
         // Mouse move handler for hover preview
-        async function handleMouseMove(e) {
-            if (!maskInteractionEnabled) return;
+        function handleMouseMove(e) {
+            if (!maskInteractionEnabled || masks.length === 0) return;
             
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
-            try {
-                const response = await fetch('/get_mask_preview', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ x: x, y: y })
-                });
-
-                const result = await response.json();
+            // Find mask at current position
+            const maskIndex = findMaskAtPoint(x, y);
+            
+            if (maskIndex !== hoveredMaskIndex) {
+                hoveredMaskIndex = maskIndex;
                 
-                if (result.success && result.has_mask) {
-                    showMaskPreview(result.mask_info, result.preview_image);
+                if (maskIndex >= 0) {
+                    // Show mask preview
+                    updateMaskPreview(maskIndex);
                     canvas.style.cursor = 'pointer';
                 } else {
+                    // Clear preview
                     clearMaskPreview();
                     canvas.style.cursor = 'default';
                 }
-            } catch (error) {
-                clearMaskPreview();
+                
+                // Redraw masks to show hover effects
+                drawMasks();
             }
         }
 
@@ -1339,6 +1540,132 @@
             `;
         }
         
+        // Update mask preview for frontend-based system
+        function updateMaskPreview(maskIndex) {
+            if (maskIndex < 0 || maskIndex >= masks.length) {
+                clearMaskPreview();
+                return;
+            }
+            
+            const mask = masks[maskIndex];
+            const previewContent = document.getElementById('previewContent');
+            const previewInfo = document.getElementById('previewInfo');
+            
+            // Create a preview image from the mask region
+            const previewImage = createMaskPreviewImage(mask);
+            
+            if (previewImage) {
+                previewContent.innerHTML = `<img src="${previewImage}" alt="Mask Preview" class="preview-image" />`;
+            } else {
+                previewContent.innerHTML = `
+                    <div class="preview-placeholder">
+                        <i class="fas fa-image"></i>
+                        <p>Preview unavailable</p>
+                    </div>
+                `;
+            }
+            
+            // Update mask information
+            const state = mask.state;
+            const stateIcon = state === 'active' ? '✅' : '❌';
+            const stateText = state === 'active' ? 'Active' : 'Removed';
+            const qualityScore = mask.qualityScore;
+            const qualityColor = qualityScore > 0.8 ? '#28a745' : qualityScore > 0.6 ? '#ffc107' : '#dc3545';
+            const qualityText = qualityScore > 0.8 ? 'Excellent' : qualityScore > 0.6 ? 'Good' : 'Fair';
+            
+            previewInfo.innerHTML = `
+                <div class="mask-details">
+                    <h5>
+                        ${stateIcon} Mask ${mask.id + 1}
+                        <span class="quality-badge" style="background: ${qualityColor}; color: white; padding: 2px 6px; border-radius: 3px; font-size: 0.7em;">
+                            ${qualityText}
+                        </span>
+                    </h5>
+                    <div class="detail-row">
+                        <span class="detail-label">Status:</span>
+                        <span class="detail-value" style="color: ${state === 'active' ? '#28a745' : '#dc3545'}">${stateText}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Center:</span>
+                        <span class="detail-value">(${mask.center[0].toFixed(0)}, ${mask.center[1].toFixed(0)})</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Diameter:</span>
+                        <span class="detail-value">${mask.diameter.toFixed(1)} px</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Area:</span>
+                        <span class="detail-value">${mask.area.toFixed(0)} px²</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Circularity:</span>
+                        <span class="detail-value">${(mask.circularity * 100).toFixed(1)}%</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Quality Score:</span>
+                        <span class="detail-value">${(qualityScore * 100).toFixed(0)}%</span>
+                    </div>
+                    <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #e9ecef; font-size: 0.8em; color: #6c757d; text-align: center;">
+                        Click on the mask to toggle active/removed
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Create mask preview image from canvas
+        function createMaskPreviewImage(mask) {
+            if (!canvas || !currentImage) return null;
+            
+            try {
+                // Create a temporary canvas for the preview
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                const [x, y, w, h] = mask.boundingBox;
+                const padding = 20;
+                const previewSize = 200;
+                
+                // Calculate preview region with padding
+                const startX = Math.max(0, x - padding);
+                const startY = Math.max(0, y - padding);
+                const endX = Math.min(currentImage.width, x + w + padding);
+                const endY = Math.min(currentImage.height, y + h + padding);
+                
+                const regionWidth = endX - startX;
+                const regionHeight = endY - startY;
+                
+                if (regionWidth <= 0 || regionHeight <= 0) return null;
+                
+                // Set preview canvas size
+                tempCanvas.width = previewSize;
+                tempCanvas.height = previewSize;
+                
+                // Draw the region with mask overlay
+                tempCtx.drawImage(currentImage, startX, startY, regionWidth, regionHeight, 0, 0, previewSize, previewSize);
+                
+                // Add mask overlay
+                tempCtx.globalAlpha = 0.3;
+                tempCtx.fillStyle = mask.state === 'active' ? '#ff0000' : '#666666';
+                
+                // Scale mask coordinates to preview size
+                const scaleX = previewSize / regionWidth;
+                const scaleY = previewSize / regionHeight;
+                
+                const maskStartX = (x - startX) * scaleX;
+                const maskStartY = (y - startY) * scaleY;
+                const maskWidth = w * scaleX;
+                const maskHeight = h * scaleY;
+                
+                tempCtx.fillRect(maskStartX, maskStartY, maskWidth, maskHeight);
+                tempCtx.globalAlpha = 1.0;
+                
+                return tempCanvas.toDataURL('image/png');
+            } catch (error) {
+                console.warn('Error creating mask preview:', error);
+                return null;
+            }
+        }
+        
         // Clear mask preview area
         function clearMaskPreview() {
             const previewContent = document.getElementById('previewContent');
@@ -1359,60 +1686,508 @@
         }
 
         // Handle mask click for toggling
-        async function handleMaskClick(e) {
-            if (!maskInteractionEnabled) return;
+        function handleMaskClick(e) {
+            if (!maskInteractionEnabled || masks.length === 0) return;
             
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
+            // Find mask at clicked position
+            const maskIndex = findMaskAtPoint(x, y);
+            
+            if (maskIndex >= 0) {
+                // Toggle mask state
+                const mask = masks[maskIndex];
+                const newState = mask.state === 'active' ? 'removed' : 'active';
+                
+                updateMaskState(maskIndex, newState);
+                
+                // Suppress popup feedback to avoid layout shifts
+                // const action = newState === 'active' ? 'restored' : 'removed';
+                // const actionIcon = newState === 'active' ? '✅' : '❌';
+                // showAlert(`${actionIcon} Mask ${mask.id + 1} ${action}`, 'success');
+                
+                // Update counters
+                updateMaskCounts();
+                
+                // Update backend if needed (for persistence)
+                updateBackendMaskState(maskIndex, newState);
+            } else {
+                showAlert('No mask found at clicked location', 'warning');
+            }
+        }
+        
+        // Update backend with mask state changes
+        async function updateBackendMaskState(maskIndex, newState) {
             try {
-                const response = await fetch('/toggle_mask', {
+                const mask = masks[maskIndex];
+                const response = await fetch('/update_mask_state', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ x: x, y: y })
+                    body: JSON.stringify({ 
+                        mask_id: mask.id, 
+                        state: newState 
+                    })
                 });
 
                 const result = await response.json();
-                
-                if (result.success && result.mask_toggled) {
-                    displayImage(result.overlay_image);
-                    
-                    const toggleInfo = result.toggle_info;
-                    const action = toggleInfo.new_state === 'active' ? 'restored' : 'removed';
-                    const actionIcon = toggleInfo.new_state === 'active' ? '✅' : '❌';
-                    showAlert(`${actionIcon} Mask ${toggleInfo.mask_id + 1} ${action}`, 'success');
-                    
-                    // Update counters
-                    updateMaskCounts();
-                } else if (result.success) {
-                    showAlert('No mask found at clicked location', 'warning');
+                if (!result.success) {
+                    console.warn('Failed to update backend mask state:', result.error);
                 }
             } catch (error) {
-                showAlert(`Error toggling mask: ${error.message}`, 'error');
+                console.warn('Error updating backend mask state:', error);
             }
         }
 
-        // Update mask counts
-        async function updateMaskCounts() {
+        // Update mask counts from frontend mask array
+        function updateMaskCounts() {
+            if (masks.length === 0) return;
+            
+            const activeCount = masks.filter(mask => mask.state === 'active').length;
+            const removedCount = masks.filter(mask => mask.state === 'removed').length;
+            
+            // Update the display elements if they exist
+            const activeElement = document.getElementById('activeMasks');
+            const removedElement = document.getElementById('removedMasks');
+            
+            if (activeElement) activeElement.textContent = activeCount;
+            if (removedElement) removedElement.textContent = removedCount;
+            
+            // Update the stats grid if it exists
+            const statsGrid = document.getElementById('statsGrid');
+            if (statsGrid) {
+                const activeCard = statsGrid.querySelector('.stat-card:nth-child(2) .stat-value');
+                const removedCard = statsGrid.querySelector('.stat-card:nth-child(3) .stat-value');
+                
+                if (activeCard) activeCard.textContent = activeCount;
+                if (removedCard) removedCard.textContent = removedCount;
+            }
+        }
+        
+        // Set processing stage
+        async function setProcessingStage() {
+            const stageSelect = document.getElementById('processingStage');
+            const stage = stageSelect.value;
+            
             try {
-                const response = await fetch('/get_all_masks', {
+                const response = await fetch('/set_processing_stage', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                    }
+                    },
+                    body: JSON.stringify({ stage: stage })
                 });
 
                 const result = await response.json();
                 
-                if (result.success && result.summary) {
-                    document.getElementById('activeMasks').textContent = result.summary.active_masks || 0;
-                    document.getElementById('removedMasks').textContent = result.summary.removed_masks || 0;
+                if (result.success) {
+                    updateStageDisplay(result.stage, result.mask_interactions_allowed);
+                    showAlert(`Stage set to: ${stage}`, 'success');
+                    
+                    // Update mask interaction status
+                    if (result.mask_interactions_allowed) {
+                        maskInteractionEnabled = true;
+                    } else {
+                        maskInteractionEnabled = false;
+                        clearMaskPreview(); // Clear preview when interactions disabled
+                    }
+                } else {
+                    showAlert(`Error setting stage: ${result.error}`, 'error');
                 }
             } catch (error) {
-                console.warn('Failed to update mask counts:', error);
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Update stage display
+        function updateStageDisplay(stage, interactionsAllowed) {
+            const stageDisplay = document.getElementById('currentStageDisplay');
+            const interactionsStatus = document.getElementById('maskInteractionsStatus');
+            
+            stageDisplay.textContent = stage.charAt(0).toUpperCase() + stage.slice(1);
+            
+            if (interactionsAllowed) {
+                interactionsStatus.textContent = '✅ Allowed';
+                interactionsStatus.style.color = '#28a745';
+            } else {
+                interactionsStatus.textContent = '❌ Disabled';
+                interactionsStatus.style.color = '#dc3545';
+            }
+            
+            // Show/hide appropriate panels based on stage
+            const resultsPanel = document.getElementById('resultsPanel');
+            const contrastPanel = document.getElementById('contrastIntensityPanel');
+            
+            if (stage === 'segmentation') {
+                if (resultsPanel) resultsPanel.style.display = 'block';
+                if (contrastPanel) contrastPanel.style.display = 'none';
+            } else if (stage === 'blob_analysis') {
+                if (resultsPanel) resultsPanel.style.display = 'none';
+                if (contrastPanel) contrastPanel.style.display = 'block';
+                // Load stored masks info when switching to blob_analysis stage
+                loadStoredMasksInfo();
+            } else if (stage === 'removal') {
+                if (resultsPanel) resultsPanel.style.display = 'none';
+                if (contrastPanel) contrastPanel.style.display = 'none';
+            }
+        }
+        
+        // Load current stage on page load
+        async function loadCurrentStage() {
+            try {
+                const response = await fetch('/get_current_stage');
+                const result = await response.json();
+                
+                if (result.success) {
+                    updateStageDisplay(result.stage, result.mask_interactions_allowed);
+                    
+                    // Set the select dropdown to match current stage
+                    const stageSelect = document.getElementById('processingStage');
+                    if (stageSelect) stageSelect.value = result.stage;
+                    
+                    // Update mask interaction status
+                    maskInteractionEnabled = result.mask_interactions_allowed;
+                }
+            } catch (error) {
+                console.warn('Could not load current stage:', error);
+            }
+        }
+        
+        // Go to next stage (contrast & intensity adjustment)
+        async function goToNextStage() {
+            try {
+                // First, store all mask information in the backend
+                const storeResponse = await fetch('/store_masks_for_next_stage', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        masks: masks,
+                        stage: 'blob_analysis'
+                    })
+                });
+
+                const storeResult = await storeResponse.json();
+                
+                if (!storeResult.success) {
+                    showAlert(`Error storing masks: ${storeResult.error}`, 'error');
+                    return;
+                }
+
+                // Set backend stage to blob_analysis
+                const response = await fetch('/set_processing_stage', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ stage: 'blob_analysis' })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Store masks in backend and clear frontend
+                    console.log('✅ Masks stored in backend for next stage');
+                    
+                    // Clear frontend mask display
+                    masks = [];
+                    hoveredMaskIndex = -1;
+                    selectedMaskIndex = -1;
+                    
+                    // Clear canvas and redraw only the base image
+                    clearCanvasAndRedrawImage();
+                    
+                    // Update UI
+                    updateStageDisplay(result.stage, result.mask_interactions_allowed);
+                    
+                    // Show contrast & intensity panel
+                    document.getElementById('contrastIntensityPanel').style.display = 'block';
+                    
+                    // Hide results panel
+                    document.getElementById('resultsPanel').style.display = 'none';
+                    
+                    // Disable mask interactions
+                    maskInteractionEnabled = false;
+                    clearMaskPreview();
+                    
+                    // Update stage dropdown
+                    document.getElementById('processingStage').value = 'blob_analysis';
+                    
+                    // Load and display stored masks information
+                    loadStoredMasksInfo();
+                    
+                    showAlert('✅ Moved to Contrast & Intensity Adjustment Stage - Masks stored in backend', 'success');
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Apply image adjustments
+        async function applyImageAdjustments() {
+            const brightness = parseInt(document.getElementById('brightnessSlider').value);
+            const contrast = parseFloat(document.getElementById('contrastSlider').value);
+            const intensity = parseInt(document.getElementById('intensityThreshold').value);
+            const applyToMasksOnly = false;
+            
+            try {
+                const response = await fetch('/apply_image_adjustments', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        brightness: brightness,
+                        contrast: contrast,
+                        intensity_threshold: intensity,
+                        apply_to_masks_only: applyToMasksOnly
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Display adjusted image
+                    displayImage(result.adjusted_image);
+                    
+                    // Redraw masks on top
+                    drawMasks();
+                    
+                    showAlert('✅ Image adjustments applied successfully!', 'success');
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Reset adjustments to original values
+        function resetAdjustments() {
+            document.getElementById('brightnessSlider').value = 0;
+            document.getElementById('contrastSlider').value = 1.0;
+            document.getElementById('intensityThreshold').value = -1;
+            // No mask-only option; adjustments always apply to the whole image
+            
+            updateBrightnessDisplay();
+            updateContrastDisplay();
+            updateIntensityDisplay();
+            
+            // Reload original image
+            if (segmentationResults && segmentationResults.overlay_image) {
+                displayImage(segmentationResults.overlay_image);
+                drawMasks();
+            }
+            
+            showAlert('🔄 Adjustments reset to original values', 'info');
+        }
+        
+        // Proceed to removal stage
+        async function proceedToRemovalStage() {
+            try {
+                // Set backend stage to removal
+                const response = await fetch('/set_processing_stage', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ stage: 'removal' })
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update UI
+                    updateStageDisplay(result.stage, result.mask_interactions_allowed);
+                    
+                    // Hide contrast & intensity panel
+                    document.getElementById('contrastIntensityPanel').style.display = 'none';
+                    
+                    // Update stage dropdown
+                    document.getElementById('processingStage').value = 'removal';
+                    
+                    showAlert('✅ Moved to Removal Stage', 'success');
+                } else {
+                    showAlert(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+        
+        // Update display values for sliders
+        function updateBrightnessDisplay() {
+            document.getElementById('brightnessValue').textContent = document.getElementById('brightnessSlider').value;
+        }
+        
+        function updateContrastDisplay() {
+            document.getElementById('contrastValue').textContent = document.getElementById('contrastSlider').value;
+        }
+        
+        function updateIntensityDisplay() {
+            const value = document.getElementById('intensityThreshold').value;
+            document.getElementById('intensityValue').textContent = value === '-1' ? 'Disabled' : value;
+        }
+        
+        // Clear canvas and redraw only the base image (no masks)
+        function clearCanvasAndRedrawImage() {
+            if (!ctx || !currentImage) return;
+            
+            // Clear the entire canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Redraw only the base image without masks
+            ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+            
+            console.log('🧹 Canvas cleared - showing clean image without masks');
+        }
+        
+        // Load and display stored masks information
+        async function loadStoredMasksInfo() {
+            try {
+                const response = await fetch('/get_stored_masks');
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('storedMasksCount').textContent = result.count;
+                    document.getElementById('storedMasksStage').textContent = result.stage;
+                    
+                    console.log(`📊 Loaded stored masks info: ${result.count} masks for ${result.stage} stage`);
+                } else {
+                    document.getElementById('storedMasksCount').textContent = '0';
+                    document.getElementById('storedMasksStage').textContent = 'None';
+                    console.warn('No stored masks available');
+                }
+            } catch (error) {
+                console.warn('Failed to load stored masks info:', error);
+                document.getElementById('storedMasksCount').textContent = 'Error';
+                document.getElementById('storedMasksStage').textContent = 'Error';
+            }
+        }
+        
+        // Mask data structure and management
+        class Mask {
+            constructor(data) {
+                this.id = data.mask_id || 0;
+                this.boundingBox = data.bounding_box || [0, 0, 0, 0]; // [x, y, w, h]
+                this.center = [data.center_x || 0, data.center_y || 0];
+                this.area = data.area || 0;
+                this.diameter = data.diameter || 0;
+                this.circularity = data.circularity || 0;
+                this.aspectRatio = data.aspect_ratio || 0;
+                this.state = data.state || 'active'; // 'active' or 'removed'
+                this.qualityScore = data.quality_score || 0;
+                this.color = this.state === 'active' ? '#ff0000' : '#666666';
+                this.lineWidth = this.state === 'active' ? 2 : 1;
+                this.lineStyle = this.state === 'active' ? 'solid' : 'dashed';
+            }
+            
+            // Check if a point is inside this mask's bounding box
+            containsPoint(x, y) {
+                const [bx, by, bw, bh] = this.boundingBox;
+                return x >= bx && x <= bx + bw && y >= by && y <= by + bh;
+            }
+            
+            // Get bounding box with canvas scaling
+            getScaledBoundingBox() {
+                const [x, y, w, h] = this.boundingBox;
+                return [
+                    x * canvasScale,
+                    y * canvasScale,
+                    w * canvasScale,
+                    h * canvasScale
+                ];
+            }
+        }
+        
+        // Draw all masks on the canvas
+        function drawMasks() {
+            if (!ctx || !currentImage) return;
+            
+            // Clear previous mask drawings
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw the base image
+            if (currentImage) {
+                ctx.drawImage(currentImage, 0, 0, canvas.width, canvas.height);
+            }
+            
+            // Draw each mask
+            masks.forEach((mask, index) => {
+                drawMask(mask, index === hoveredMaskIndex, index === selectedMaskIndex);
+            });
+        }
+        
+        // Draw a single mask
+        function drawMask(mask, isHovered = false, isSelected = false) {
+            if (!ctx) return;
+            
+            const [x, y, w, h] = mask.getScaledBoundingBox();
+            
+            // Set line style
+            ctx.strokeStyle = mask.color;
+            ctx.lineWidth = mask.lineWidth;
+            
+            if (mask.lineStyle === 'dashed') {
+                ctx.setLineDash([5, 5]);
+            } else {
+                ctx.setLineDash([]);
+            }
+            
+            // Draw bounding box
+            ctx.strokeRect(x, y, w, h);
+            
+            // Highlight hovered or selected mask
+            if (isHovered || isSelected) {
+                ctx.strokeStyle = '#00ff00';
+                ctx.lineWidth = 3;
+                ctx.setLineDash([]);
+                ctx.strokeRect(x - 2, y - 2, w + 4, h + 4);
+            }
+            
+            // Reset line style
+            ctx.setLineDash([]);
+            
+            // Note: Mask ID labels removed for cleaner appearance
+            // Users can still see mask details in the preview panel when hovering
+        }
+        
+        // Find mask at coordinates
+        function findMaskAtPoint(x, y) {
+            // Convert canvas coordinates to image coordinates
+            const imageX = x / canvasScale;
+            const imageY = y / canvasScale;
+            
+            for (let i = masks.length - 1; i >= 0; i--) {
+                if (masks[i].containsPoint(imageX, imageY)) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        
+        // Update mask state
+        function updateMaskState(maskIndex, newState) {
+            if (maskIndex >= 0 && maskIndex < masks.length) {
+                const mask = masks[maskIndex];
+                mask.state = newState;
+                mask.color = newState === 'active' ? '#ff0000' : '#666666';
+                mask.lineWidth = newState === 'active' ? 2 : 1;
+                mask.lineStyle = newState === 'active' ? 'solid' : 'dashed';
+                
+                // Redraw masks
+                drawMasks();
+                
+                // Update preview if this mask is currently shown
+                if (maskIndex === hoveredMaskIndex) {
+                    updateMaskPreview(maskIndex);
+                }
             }
         }
 

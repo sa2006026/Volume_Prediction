@@ -82,11 +82,40 @@ class SAMWebEngine:
         self.use_gpu = True
         self.sam_config = None
         self.output_dir = "results/sam_segmentation"
+        self.current_stage = "segmentation"  # Add stage management: "segmentation", "blob_analysis", "removal"
+        self.stored_masks = []  # Store masks for next stage processing
+        self.stored_masks_stage = None  # Track which stage masks are stored for
         os.makedirs(self.output_dir, exist_ok=True)
         
         # Initialize advanced SAM configuration if available
         if ADVANCED_SAM_AVAILABLE:
             self._initialize_advanced_sam_config()
+    
+    def set_stage(self, stage: str):
+        """Set the current processing stage to control interactions"""
+        allowed_stages = ["segmentation", "blob_analysis", "removal"]
+        if stage in allowed_stages:
+            self.current_stage = stage
+            print(f"🔧 Stage changed to: {stage}")
+            return True
+        return False
+    
+    def get_current_stage(self) -> str:
+        """Get the current processing stage"""
+        return self.current_stage
+    
+    def is_mask_interaction_allowed(self) -> bool:
+        """Check if mask interactions are allowed in current stage"""
+        # Only allow mask interactions during segmentation stage
+        return self.current_stage == "segmentation"
+    
+    def get_stored_masks(self):
+        """Get stored masks for next stage processing"""
+        return self.stored_masks
+    
+    def has_stored_masks(self) -> bool:
+        """Check if there are stored masks available"""
+        return len(self.stored_masks) > 0
     
     def _initialize_advanced_sam_config(self):
         """Initialize advanced SAM configuration with ONNX/TensorRT support"""
@@ -126,11 +155,22 @@ class SAMWebEngine:
         return backends
     
     def load_image(self, image_path: str):
-        """Load image for SAM processing"""
+        """Load image for SAM processing with resolution optimization"""
         self.image_path = image_path
         self.original_image = cv2.imread(image_path)
         if self.original_image is None:
             raise ValueError(f"Could not load image from {image_path}")
+        
+        # Check image dimensions and optimize for SAM processing
+        height, width = self.original_image.shape[:2]
+        print(f"📏 Loaded image: {width}x{height}")
+        
+        # For very large images (like 2048x2048), we might need to adjust SAM parameters
+        if width > 1500 or height > 1500:
+            print("🔧 Large image detected, optimizing SAM parameters for better performance")
+            # Adjust default parameters for large images
+            self.current_points_per_side = 64  # More points for better coverage
+            self.current_crop_layers = 2       # More crop layers for large images
         
         self.current_image = self.original_image.copy()
         
@@ -237,6 +277,10 @@ class SAMWebEngine:
         if self.sam_analyzer is None:
             return None
         
+        # Check if mask interactions are allowed in current stage
+        if not self.is_mask_interaction_allowed():
+            return None, None
+        
         toggle_result = self.sam_analyzer.toggle_mask_state(x, y)
         
         if toggle_result:
@@ -317,8 +361,8 @@ class SAMWebEngine:
         # Find which mask contains this point
         for i, mask in enumerate(self.sam_analyzer.masks):
             if y < mask.shape[0] and x < mask.shape[1] and mask[y, x] > 0:
-                # Generate preview for this mask
-                preview_image = self.sam_analyzer.create_mask_preview(i, preview_size=(200, 200))
+                # Create a focused preview showing only this specific blob
+                preview_image = self._create_blob_focused_preview(i, x, y, preview_size=(200, 200))
                 
                 if preview_image is not None:
                     # Convert to base64
@@ -333,6 +377,52 @@ class SAMWebEngine:
                     return preview_base64, mask_info
         
         return None, None
+    
+    def _create_blob_focused_preview(self, mask_id: int, x: int, y: int, preview_size: tuple = (200, 200)):
+        """Create a focused preview showing the specific blob being hovered"""
+        if self.sam_analyzer is None or mask_id >= len(self.sam_analyzer.masks):
+            return None
+        
+        mask = self.sam_analyzer.masks[mask_id]
+        if mask is None:
+            return None
+        
+        # Get the bounding box of the mask
+        mask_stats = self.sam_analyzer.mask_statistics[mask_id]
+        if not mask_stats or 'bounding_box' not in mask_stats:
+            return None
+        
+        x1, y1, w, h = mask_stats['bounding_box']
+        
+        # Add some padding around the blob
+        padding = 20
+        x1 = max(0, x1 - padding)
+        y1 = max(0, y1 - padding)
+        x2 = min(mask.shape[1], x1 + w + 2 * padding)
+        y2 = min(mask.shape[0], y1 + h + 2 * padding)
+        
+        # Extract the region containing the blob
+        blob_region = self.current_image[y1:y2, x1:x2]
+        mask_region = mask[y1:y2, x1:x2]
+        
+        if blob_region.size == 0:
+            return None
+        
+        # Create a composite image showing the blob with mask overlay
+        preview = blob_region.copy()
+        
+        # Apply mask overlay (semi-transparent red)
+        mask_overlay = np.zeros_like(preview)
+        mask_overlay[mask_region > 0] = [0, 0, 255]  # Red overlay for mask
+        
+        # Blend the overlay
+        alpha = 0.3
+        preview = cv2.addWeighted(preview, 1-alpha, mask_overlay, alpha, 0)
+        
+        # Resize to preview size
+        preview = cv2.resize(preview, preview_size)
+        
+        return preview
     
     def apply_image_adjustments(self, brightness: int = 0, contrast: float = 1.0, intensity_threshold: int = -1):
         """Apply brightness, contrast, and intensity threshold adjustments to the image"""
@@ -581,6 +671,17 @@ def toggle_mask():
         x = data.get('x', 0)
         y = data.get('y', 0)
         
+        # Check current stage before allowing mask interactions
+        current_stage = engine.get_current_stage()
+        if not engine.is_mask_interaction_allowed():
+            return jsonify({
+                'success': True,
+                'mask_toggled': False,
+                'stage_blocked': True,
+                'current_stage': current_stage,
+                'message': f'Mask interactions not allowed during {current_stage} stage'
+            })
+        
         toggle_result, overlay_image = engine.toggle_mask_at_point(int(x), int(y))
         
         if toggle_result:
@@ -591,12 +692,16 @@ def toggle_mask():
                 'mask_toggled': True,
                 'toggle_info': toggle_result,
                 'overlay_image': overlay_base64,
+                'stage_blocked': False,
+                'current_stage': current_stage,
                 'message': f"Mask {toggle_result['mask_id'] + 1} {toggle_result['new_state']}"
             })
         else:
             return jsonify({
                 'success': True,
                 'mask_toggled': False,
+                'stage_blocked': False,
+                'current_stage': current_stage,
                 'message': 'No mask found at clicked location'
             })
         
@@ -712,6 +817,117 @@ def apply_image_adjustments():
                 'apply_to_masks_only': apply_to_masks_only
             }
         })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/set_processing_stage', methods=['POST'])
+def set_processing_stage():
+    """Set the current processing stage to control interactions"""
+    try:
+        data = request.get_json()
+        stage = data.get('stage', 'segmentation')
+        
+        success = engine.set_stage(stage)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'stage': stage,
+                'mask_interactions_allowed': engine.is_mask_interaction_allowed(),
+                'message': f'Stage set to: {stage}'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Invalid stage: {stage}'
+            })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_current_stage', methods=['GET'])
+def get_current_stage():
+    """Get the current processing stage and interaction permissions"""
+    try:
+        stage = engine.get_current_stage()
+        return jsonify({
+            'success': True,
+            'stage': stage,
+            'mask_interactions_allowed': engine.is_mask_interaction_allowed()
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/update_mask_state', methods=['POST'])
+def update_mask_state():
+    """Update mask state in the backend"""
+    try:
+        data = request.get_json()
+        mask_id = data.get('mask_id', 0)
+        new_state = data.get('state', 'active')
+        
+        if engine.sam_analyzer is None or mask_id >= len(engine.sam_analyzer.mask_states):
+            return jsonify({'success': False, 'error': 'Invalid mask ID'})
+        
+        # Update the mask state in the backend
+        engine.sam_analyzer.mask_states[mask_id] = new_state
+        
+        return jsonify({
+            'success': True,
+            'mask_id': mask_id,
+            'new_state': new_state,
+            'message': f'Mask {mask_id + 1} state updated to {new_state}'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/store_masks_for_next_stage', methods=['POST'])
+def store_masks_for_next_stage():
+    """Store mask information in backend for next processing stage"""
+    try:
+        data = request.get_json()
+        masks_data = data.get('masks', [])
+        stage = data.get('stage', 'blob_analysis')
+        
+        if not masks_data:
+            return jsonify({'success': False, 'error': 'No mask data provided'})
+        
+        # Store masks in the engine for next stage processing
+        engine.stored_masks = masks_data
+        engine.stored_masks_stage = stage
+        
+        # Log the storage
+        print(f"🔒 Stored {len(masks_data)} masks for {stage} stage")
+        
+        return jsonify({
+            'success': True,
+            'masks_stored': len(masks_data),
+            'stage': stage,
+            'message': f'Successfully stored {len(masks_data)} masks for {stage} stage'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_stored_masks', methods=['GET'])
+def get_stored_masks():
+    """Get stored masks for next stage processing"""
+    try:
+        if engine.has_stored_masks():
+            return jsonify({
+                'success': True,
+                'masks': engine.get_stored_masks(),
+                'stage': engine.stored_masks_stage,
+                'count': len(engine.get_stored_masks())
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'No stored masks available'
+            })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
