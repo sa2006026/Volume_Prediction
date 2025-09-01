@@ -85,6 +85,7 @@ class SAMWebEngine:
         self.current_stage = "segmentation"  # Add stage management: "segmentation", "blob_analysis", "removal"
         self.stored_masks = []  # Store masks for next stage processing
         self.stored_masks_stage = None  # Track which stage masks are stored for
+        self.last_adjusted_image = None  # Keep last adjusted image for downstream stages
         os.makedirs(self.output_dir, exist_ok=True)
         
         # Initialize advanced SAM configuration if available
@@ -453,6 +454,11 @@ class SAMWebEngine:
             # Set pixels below threshold to black
             adjusted_image[threshold_mask] = [0, 0, 0]
         
+        # Persist last adjusted image for next-stage processing
+        self.last_adjusted_image = adjusted_image.copy()
+        # Also update current image so frontend redraws align
+        self.current_image = adjusted_image.copy()
+        
         return adjusted_image
     
     def get_active_masks_region(self):
@@ -490,7 +496,78 @@ class SAMWebEngine:
         # Apply adjusted pixels only where masks are active
         result_image[active_mask > 0] = adjusted_image[active_mask > 0]
         
+        # Persist last adjusted image
+        self.last_adjusted_image = result_image.copy()
+        self.current_image = result_image.copy()
+        
         return result_image
+
+    def associate_masks_to_blobs(self):
+        """Find closest blob to each stored mask center on the adjusted image."""
+        # Use last adjusted image if available; otherwise fall back to current image
+        work_image = self.last_adjusted_image if self.last_adjusted_image is not None else self.current_image
+        if work_image is None or not self.has_stored_masks():
+            return None, []
+        
+        # Convert to grayscale and binarize to find blobs
+        gray = cv2.cvtColor(work_image, cv2.COLOR_BGR2GRAY)
+        # Otsu threshold as default blob extraction
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        
+        # Find contours (blobs)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        blob_centers = []
+        for idx, cnt in enumerate(contours):
+            M = cv2.moments(cnt)
+            if M["m00"] > 0:
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+                blob_centers.append((idx, (cx, cy)))
+        
+        associations = []
+        # Prepare overlay visualization
+        overlay = work_image.copy()
+        if len(overlay.shape) == 2:
+            overlay = cv2.cvtColor(overlay, cv2.COLOR_GRAY2BGR)
+        
+        # Draw blob centers
+        for blob_id, (cx, cy) in blob_centers:
+            cv2.circle(overlay, (cx, cy), 4, (0, 255, 0), -1)
+        
+        # For each stored mask, find nearest blob by Euclidean distance
+        for mask in self.stored_masks:
+            # Try to read mask center from stored dict structure
+            mx, my = 0, 0
+            if isinstance(mask, dict):
+                if 'center' in mask and isinstance(mask['center'], (list, tuple)) and len(mask['center']) >= 2:
+                    mx, my = int(mask['center'][0]), int(mask['center'][1])
+                elif 'center_x' in mask and 'center_y' in mask:
+                    mx, my = int(float(mask['center_x'])), int(float(mask['center_y']))
+            
+            closest_blob_id = -1
+            closest_center = (0, 0)
+            closest_dist = float('inf')
+            for blob_id, (cx, cy) in blob_centers:
+                d = (mx - cx) ** 2 + (my - cy) ** 2
+                if d < closest_dist:
+                    closest_dist = d
+                    closest_blob_id = blob_id
+                    closest_center = (cx, cy)
+            
+            associations.append({
+                'mask_center': {'x': mx, 'y': my},
+                'blob_id': int(closest_blob_id),
+                'blob_center': {'x': int(closest_center[0]), 'y': int(closest_center[1])},
+                'distance_px': float(np.sqrt(closest_dist)) if closest_dist < float('inf') else None
+            })
+            
+            # Draw mask center and connection line
+            cv2.circle(overlay, (mx, my), 4, (0, 0, 255), -1)
+            if closest_blob_id >= 0:
+                cv2.line(overlay, (mx, my), closest_center, (255, 0, 0), 1)
+        
+        return overlay, associations
 
 # Global engine instance
 engine = SAMWebEngine()
@@ -788,18 +865,12 @@ def apply_image_adjustments():
             return jsonify({'success': False, 'error': 'No image loaded'})
         
         # Apply adjustments
-        if apply_to_masks_only:
-            adjusted_image = engine.apply_adjustments_to_masked_region(
-                brightness=int(brightness),
-                contrast=float(contrast),
-                intensity_threshold=int(intensity_threshold)
-            )
-        else:
-            adjusted_image = engine.apply_image_adjustments(
-                brightness=int(brightness),
-                contrast=float(contrast),
-                intensity_threshold=int(intensity_threshold)
-            )
+        # Always apply to whole image per latest UX requirement
+        adjusted_image = engine.apply_image_adjustments(
+            brightness=int(brightness),
+            contrast=float(contrast),
+            intensity_threshold=int(intensity_threshold)
+        )
         
         if adjusted_image is None:
             return jsonify({'success': False, 'error': 'Failed to apply adjustments'})
@@ -814,7 +885,7 @@ def apply_image_adjustments():
                 'brightness': brightness,
                 'contrast': contrast,
                 'intensity_threshold': intensity_threshold,
-                'apply_to_masks_only': apply_to_masks_only
+                'apply_to_masks_only': False
             }
         })
         
@@ -929,6 +1000,24 @@ def get_stored_masks():
                 'error': 'No stored masks available'
             })
         
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/associate_masks_to_blobs', methods=['POST'])
+def associate_masks_to_blobs():
+    """Associate stored masks to closest blobs in the last adjusted image and return overlay + mapping."""
+    try:
+        overlay, associations = engine.associate_masks_to_blobs()
+        if overlay is None:
+            return jsonify({'success': False, 'error': 'No adjusted image or stored masks available'})
+        
+        overlay_base64 = engine.get_image_as_base64(overlay)
+        return jsonify({
+            'success': True,
+            'overlay_image': overlay_base64,
+            'associations': associations,
+            'count_masks': len(associations)
+        })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 

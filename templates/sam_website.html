@@ -935,9 +935,10 @@
                     </div>
                     
                     <div style="margin-top: 15px;">
-                        <button class="btn btn-success" onclick="proceedToRemovalStage()" style="width: 100%; padding: 12px;">
-                            <i class="fas fa-arrow-right"></i> Proceed to Removal Stage
+                        <button class="btn btn-success" onclick="associateMasksToBlobs()" style="width: 100%; padding: 12px;">
+                            <i class="fas fa-project-diagram"></i> Associate Masks to Closest Blobs
                         </button>
+                        <div id="associationSummary" style="margin-top: 10px; font-size: 0.85em; color: #495057; display: none;"></div>
                     </div>
                 </div>
 
@@ -1957,11 +1958,43 @@
                     displayImage(result.adjusted_image);
                     
                     // Redraw masks on top
-                    drawMasks();
+                    // Masks hidden in this stage; do not redraw overlays
                     
                     showAlert('✅ Image adjustments applied successfully!', 'success');
                 } else {
                     showAlert(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showAlert(`Network error: ${error.message}`, 'error');
+            }
+        }
+
+        // Associate stored masks to closest blobs on adjusted image
+        async function associateMasksToBlobs() {
+            try {
+                const response = await fetch('/associate_masks_to_blobs', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    // Show overlay with associations: mask centers (red), blob centers (green), lines (blue)
+                    displayImage(result.overlay_image);
+                    
+                    // Update summary
+                    const summary = document.getElementById('associationSummary');
+                    if (summary) {
+                        summary.style.display = 'block';
+                        summary.innerHTML = `Associated ${result.count_masks} mask(s) to closest blob(s).`;
+                    }
+                    
+                    // Optionally proceed to next stage if needed
+                    // proceedToRemovalStage();
+                } else {
+                    showAlert(`Association failed: ${result.error}`, 'error');
                 }
             } catch (error) {
                 showAlert(`Network error: ${error.message}`, 'error');
