@@ -723,64 +723,6 @@ def get_history():
         'total_operations': len(engine.removal_history)
     })
 
-@app.route('/radial_analysis', methods=['POST'])
-def radial_analysis():
-    """Perform radial intensity profile analysis"""
-    try:
-        data = request.get_json()
-        detection_method = data.get('detection_method', 'hough')
-        step_angle = data.get('step_angle', 15)
-        min_radius = data.get('min_radius', 20)
-        max_radius = data.get('max_radius', 150)
-        
-        if engine.current_image is None or engine.radial_analyzer is None:
-            return jsonify({'success': False, 'error': 'No image loaded for analysis'})
-        
-        # Update radial analyzer with current image
-        engine.radial_analyzer.load_image(engine.current_image.copy())
-        
-        # Detect droplets based on method
-        if detection_method == 'hough':
-            droplets = engine.radial_analyzer.detect_droplets_hough(min_radius, max_radius)
-        elif detection_method == 'blob':
-            droplets = engine.radial_analyzer.detect_droplets_blob(min_radius, max_radius)
-        elif detection_method == 'manual':
-            # For manual, we'd need center coordinates from the user
-            # For now, use image center as fallback
-            height, width = engine.current_image.shape[:2]
-            center_x, center_y = width // 2, height // 2
-            estimated_radius = min(width, height) // 4
-            droplets = engine.radial_analyzer.detect_droplets_manual(center_x, center_y, estimated_radius)
-        else:
-            return jsonify({'success': False, 'error': f'Unknown detection method: {detection_method}'})
-        
-        if not droplets:
-            return jsonify({
-                'success': True,
-                'droplets_count': 0,
-                'droplets': [],
-                'detection_method': detection_method,
-                'message': 'No droplets detected'
-            })
-        
-        # Perform radial analysis on detected droplets
-        analysis_results = engine.radial_analyzer.analyze_all_droplets(step_angle)
-        
-        # Get summary statistics
-        summary = engine.radial_analyzer.get_analysis_summary()
-        
-        return jsonify({
-            'success': True,
-            'droplets_count': len(droplets),
-            'droplets': droplets,
-            'detection_method': detection_method,
-            'analysis_results': analysis_results,
-            'summary': summary,
-            'message': f'Found {len(droplets)} droplet(s)'
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/get_radial_profile', methods=['POST'])
 def get_radial_profile():

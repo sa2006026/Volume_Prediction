@@ -82,36 +82,16 @@ class SAMWebEngine:
         self.use_gpu = True
         self.sam_config = None
         self.output_dir = "results/sam_segmentation"
-        self.current_stage = "segmentation"  # Add stage management: "segmentation", "blob_analysis", "removal"
-        self.stored_masks = []  # Store masks for next stage processing
-        self.stored_masks_stage = None  # Track which stage masks are stored for
-        self.last_adjusted_image = None  # Keep last adjusted image for downstream stages
+        self.stored_masks = []  # Store masks for analysis
+        self.last_adjusted_image = None  # Keep last adjusted image
         os.makedirs(self.output_dir, exist_ok=True)
         
         # Initialize advanced SAM configuration if available
         if ADVANCED_SAM_AVAILABLE:
             self._initialize_advanced_sam_config()
     
-    def set_stage(self, stage: str):
-        """Set the current processing stage to control interactions"""
-        allowed_stages = ["segmentation", "blob_analysis", "removal"]
-        if stage in allowed_stages:
-            self.current_stage = stage
-            print(f"🔧 Stage changed to: {stage}")
-            return True
-        return False
-    
-    def get_current_stage(self) -> str:
-        """Get the current processing stage"""
-        return self.current_stage
-    
-    def is_mask_interaction_allowed(self) -> bool:
-        """Check if mask interactions are allowed in current stage"""
-        # Only allow mask interactions during segmentation stage
-        return self.current_stage == "segmentation"
-    
     def get_stored_masks(self):
-        """Get stored masks for next stage processing"""
+        """Get stored masks for analysis"""
         return self.stored_masks
     
     def has_stored_masks(self) -> bool:
@@ -756,16 +736,7 @@ def toggle_mask():
         x = data.get('x', 0)
         y = data.get('y', 0)
         
-        # Check current stage before allowing mask interactions
-        current_stage = engine.get_current_stage()
-        if not engine.is_mask_interaction_allowed():
-            return jsonify({
-                'success': True,
-                'mask_toggled': False,
-                'stage_blocked': True,
-                'current_stage': current_stage,
-                'message': f'Mask interactions not allowed during {current_stage} stage'
-            })
+        # Allow mask interactions
         
         toggle_result, overlay_image = engine.toggle_mask_at_point(int(x), int(y))
         
@@ -777,16 +748,12 @@ def toggle_mask():
                 'mask_toggled': True,
                 'toggle_info': toggle_result,
                 'overlay_image': overlay_base64,
-                'stage_blocked': False,
-                'current_stage': current_stage,
                 'message': f"Mask {toggle_result['mask_id'] + 1} {toggle_result['new_state']}"
             })
         else:
             return jsonify({
                 'success': True,
                 'mask_toggled': False,
-                'stage_blocked': False,
-                'current_stage': current_stage,
                 'message': 'No mask found at clicked location'
             })
         
@@ -900,44 +867,6 @@ def apply_image_adjustments():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-@app.route('/set_processing_stage', methods=['POST'])
-def set_processing_stage():
-    """Set the current processing stage to control interactions"""
-    try:
-        data = request.get_json()
-        stage = data.get('stage', 'segmentation')
-        
-        success = engine.set_stage(stage)
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'stage': stage,
-                'mask_interactions_allowed': engine.is_mask_interaction_allowed(),
-                'message': f'Stage set to: {stage}'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': f'Invalid stage: {stage}'
-            })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/get_current_stage', methods=['GET'])
-def get_current_stage():
-    """Get the current processing stage and interaction permissions"""
-    try:
-        stage = engine.get_current_stage()
-        return jsonify({
-            'success': True,
-            'stage': stage,
-            'mask_interactions_allowed': engine.is_mask_interaction_allowed()
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/update_mask_state', methods=['POST'])
 def update_mask_state():
@@ -963,33 +892,6 @@ def update_mask_state():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-@app.route('/store_masks_for_next_stage', methods=['POST'])
-def store_masks_for_next_stage():
-    """Store mask information in backend for next processing stage"""
-    try:
-        data = request.get_json()
-        masks_data = data.get('masks', [])
-        stage = data.get('stage', 'blob_analysis')
-        
-        if not masks_data:
-            return jsonify({'success': False, 'error': 'No mask data provided'})
-        
-        # Store masks in the engine for next stage processing
-        engine.stored_masks = masks_data
-        engine.stored_masks_stage = stage
-        
-        # Log the storage
-        print(f"🔒 Stored {len(masks_data)} masks for {stage} stage")
-        
-        return jsonify({
-            'success': True,
-            'masks_stored': len(masks_data),
-            'stage': stage,
-            'message': f'Successfully stored {len(masks_data)} masks for {stage} stage'
-        })
-        
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/get_stored_masks', methods=['GET'])
 def get_stored_masks():
@@ -999,7 +901,6 @@ def get_stored_masks():
             return jsonify({
                 'success': True,
                 'masks': engine.get_stored_masks(),
-                'stage': engine.stored_masks_stage,
                 'count': len(engine.get_stored_masks())
             })
         else:
