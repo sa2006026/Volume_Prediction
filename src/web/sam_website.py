@@ -531,9 +531,8 @@ class SAMWebEngine:
         if len(overlay.shape) == 2:
             overlay = cv2.cvtColor(overlay, cv2.COLOR_GRAY2BGR)
         
-        # Draw blob centers
-        for blob_id, (cx, cy) in blob_centers:
-            cv2.circle(overlay, (cx, cy), 4, (0, 255, 0), -1)
+        # Track which blobs are closest to masks (will be filled with green)
+        closest_blob_ids = set()
         
         # For each stored mask, find nearest blob by Euclidean distance
         for mask in self.stored_masks:
@@ -555,6 +554,10 @@ class SAMWebEngine:
                     closest_blob_id = blob_id
                     closest_center = (cx, cy)
             
+            # Track this blob as closest to a mask
+            if closest_blob_id >= 0:
+                closest_blob_ids.add(closest_blob_id)
+            
             associations.append({
                 'mask_center': {'x': mx, 'y': my},
                 'blob_id': int(closest_blob_id),
@@ -565,7 +568,12 @@ class SAMWebEngine:
             # Draw mask center and connection line
             cv2.circle(overlay, (mx, my), 4, (0, 0, 255), -1)
             if closest_blob_id >= 0:
-                cv2.line(overlay, (mx, my), closest_center, (255, 0, 0), 1)
+                cv2.line(overlay, (mx, my), closest_center, (255, 200, 100), 3)  # Light blue, thicker line
+        
+        # Fill only the closest blobs with green
+        for blob_id in closest_blob_ids:
+            cnt = contours[blob_id]
+            cv2.fillPoly(overlay, [cnt], (0, 255, 0))
         
         return overlay, associations
 
