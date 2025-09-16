@@ -815,32 +815,10 @@
                     </div>
                 </div>
                 
-                <!-- Processing Stage Management -->
-                <div class="control-group">
-                    <h3>🚦 Processing Stage</h3>
-                    <div class="input-group">
-                        <label for="processingStage">Current Stage:</label>
-                        <select id="processingStage">
-                            <option value="segmentation">Segmentation</option>
-                            <option value="blob_analysis">Blob Analysis</option>
-                            <option value="removal">Removal</option>
-                        </select>
-                    </div>
-                    <div class="stage-info" style="margin: 15px 0; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 0.85em;">
-                        <div><strong>Stage:</strong> <span id="currentStageDisplay">Segmentation</span></div>
-                        <div><strong>Mask Interactions:</strong> <span id="maskInteractionsStatus">✅ Allowed</span></div>
-                    </div>
-                    <button class="btn btn-secondary" onclick="setProcessingStage()" style="font-size: 0.9em; padding: 10px 20px;">
-                        <i class="fas fa-cog"></i> Set Stage
-                    </button>
-                    <small style="color: #666; display: block; margin-top: 8px;">
-                        Control when mask interactions are allowed
-                    </small>
-                </div>
 
                 <!-- Segmentation Results -->
                 <div class="control-group" id="resultsPanel" style="display: none;">
-                    <h3><i class="fas fa-chart-bar"></i> Analysis Results</h3>
+                    <h3><i class="fas fa-chart-bar"></i> Segmentation Results</h3>
                     
                     <div class="stats-grid" id="statsGrid">
                         <!-- Stats cards will be populated here -->
@@ -1060,16 +1038,6 @@
             // Load SAM configuration
             loadSAMConfiguration();
             
-            // Load current processing stage
-            loadCurrentStage();
-            
-            // Add event listener for stage dropdown
-            const stageSelect = document.getElementById('processingStage');
-            if (stageSelect) {
-                stageSelect.addEventListener('change', function() {
-                    setProcessingStage();
-                });
-            }
         });
 
         // Load SAM configuration from server
@@ -1768,166 +1736,12 @@
             }
         }
         
-        // Set processing stage
-        async function setProcessingStage() {
-            const stageSelect = document.getElementById('processingStage');
-            const stage = stageSelect.value;
-            
-            try {
-                const response = await fetch('/set_processing_stage', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ stage: stage })
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    updateStageDisplay(result.stage, result.mask_interactions_allowed);
-                    showAlert(`Stage set to: ${stage}`, 'success');
-                    
-                    // Update mask interaction status
-                    if (result.mask_interactions_allowed) {
-                        maskInteractionEnabled = true;
-                    } else {
-                        maskInteractionEnabled = false;
-                        clearMaskPreview(); // Clear preview when interactions disabled
-                    }
-                } else {
-                    showAlert(`Error setting stage: ${result.error}`, 'error');
-                }
-            } catch (error) {
-                showAlert(`Network error: ${error.message}`, 'error');
-            }
-        }
         
-        // Update stage display
-        function updateStageDisplay(stage, interactionsAllowed) {
-            const stageDisplay = document.getElementById('currentStageDisplay');
-            const interactionsStatus = document.getElementById('maskInteractionsStatus');
-            
-            stageDisplay.textContent = stage.charAt(0).toUpperCase() + stage.slice(1);
-            
-            if (interactionsAllowed) {
-                interactionsStatus.textContent = '✅ Allowed';
-                interactionsStatus.style.color = '#28a745';
-            } else {
-                interactionsStatus.textContent = '❌ Disabled';
-                interactionsStatus.style.color = '#dc3545';
-            }
-            
-            // Show/hide appropriate panels based on stage
-            const resultsPanel = document.getElementById('resultsPanel');
-            const contrastPanel = document.getElementById('contrastIntensityPanel');
-            
-            if (stage === 'segmentation') {
-                if (resultsPanel) resultsPanel.style.display = 'block';
-                if (contrastPanel) contrastPanel.style.display = 'none';
-            } else if (stage === 'blob_analysis') {
-                if (resultsPanel) resultsPanel.style.display = 'none';
-                if (contrastPanel) contrastPanel.style.display = 'block';
-                // Load stored masks info when switching to blob_analysis stage
-                loadStoredMasksInfo();
-            } else if (stage === 'removal') {
-                if (resultsPanel) resultsPanel.style.display = 'none';
-                if (contrastPanel) contrastPanel.style.display = 'none';
-            }
-        }
         
-        // Load current stage on page load
-        async function loadCurrentStage() {
-            try {
-                const response = await fetch('/get_current_stage');
-                const result = await response.json();
-                
-                if (result.success) {
-                    updateStageDisplay(result.stage, result.mask_interactions_allowed);
-                    
-                    // Set the select dropdown to match current stage
-                    const stageSelect = document.getElementById('processingStage');
-                    if (stageSelect) stageSelect.value = result.stage;
-                    
-                    // Update mask interaction status
-                    maskInteractionEnabled = result.mask_interactions_allowed;
-                }
-            } catch (error) {
-                console.warn('Could not load current stage:', error);
-            }
-        }
         
         // Go to next stage (contrast & intensity adjustment)
         async function goToNextStage() {
-            try {
-                // First, store all mask information in the backend
-                const storeResponse = await fetch('/store_masks_for_next_stage', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ 
-                        masks: masks,
-                        stage: 'blob_analysis'
-                    })
-                });
-
-                const storeResult = await storeResponse.json();
-                
-                if (!storeResult.success) {
-                    showAlert(`Error storing masks: ${storeResult.error}`, 'error');
-                    return;
-                }
-
-                // Set backend stage to blob_analysis
-                const response = await fetch('/set_processing_stage', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ stage: 'blob_analysis' })
-                });
-
-                const result = await response.json();
-                
-                if (result.success) {
-                    // Store masks in backend and clear frontend
-                    console.log('✅ Masks stored in backend for next stage');
-                    
-                    // Clear frontend mask display
-                    masks = [];
-                    hoveredMaskIndex = -1;
-                    selectedMaskIndex = -1;
-                    
-                    // Clear canvas and redraw only the base image
-                    clearCanvasAndRedrawImage();
-                    
-                    // Update UI
-                    updateStageDisplay(result.stage, result.mask_interactions_allowed);
-                    
-                    // Show contrast & intensity panel
-                    document.getElementById('contrastIntensityPanel').style.display = 'block';
-                    
-                    // Hide results panel
-                    document.getElementById('resultsPanel').style.display = 'none';
-                    
-                    // Disable mask interactions
-                    maskInteractionEnabled = false;
-                    clearMaskPreview();
-                    
-                    // Update stage dropdown
-                    document.getElementById('processingStage').value = 'blob_analysis';
-                    
-                    // Load and display stored masks information
-                    loadStoredMasksInfo();
-                    
-                    showAlert('✅ Moved to Contrast & Intensity Adjustment Stage - Masks stored in backend', 'success');
-                } else {
-                    showAlert(`Error: ${result.error}`, 'error');
-                }
-            } catch (error) {
-                showAlert(`Network error: ${error.message}`, 'error');
-            }
+            showAlert('Processing stage functionality has been removed', 'info');
         }
         
         // Apply image adjustments
@@ -2036,14 +1850,10 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    // Update UI
-                    updateStageDisplay(result.stage, result.mask_interactions_allowed);
                     
                     // Hide contrast & intensity panel
                     document.getElementById('contrastIntensityPanel').style.display = 'none';
                     
-                    // Update stage dropdown
-                    document.getElementById('processingStage').value = 'removal';
                     
                     showAlert('✅ Moved to Removal Stage', 'success');
                 } else {
