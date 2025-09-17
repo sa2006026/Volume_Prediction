@@ -406,6 +406,134 @@ def create_segmented_visualization(image, mask):
         print(f"❌ Error creating segmented visualization: {e}")
         return image
 
+@app.route('/apply_intensity_filter', methods=['POST'])
+def apply_intensity_filter():
+    """Apply intensity filter to separate masks into groups"""
+    try:
+        sam_analyzer = get_sam_analyzer()
+        
+        if sam_analyzer is None:
+            return jsonify({'success': False, 'error': 'SAM analyzer not available'})
+        
+        data = request.get_json()
+        threshold = data.get('threshold', 128)
+        filter_mode = data.get('filter_mode', 'mean')
+        
+        # Apply the intensity filter
+        result = sam_analyzer.apply_intensity_filter(threshold, filter_mode)
+        
+        if result['success']:
+            # Generate updated visualization
+            overlay_image = sam_analyzer.create_mask_overlay()
+            overlay_base64 = numpy_to_base64(overlay_image)
+            
+            return jsonify({
+                'success': True,
+                'image': f"data:image/png;base64,{overlay_base64}",
+                'filter_results': result
+            })
+        else:
+            return jsonify(result)
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/reset_intensity_filter', methods=['POST'])
+def reset_intensity_filter():
+    """Reset intensity filter to show all masks in default color"""
+    try:
+        sam_analyzer = get_sam_analyzer()
+        
+        if sam_analyzer is None:
+            return jsonify({'success': False, 'error': 'SAM analyzer not available'})
+        
+        # Reset the intensity filter
+        sam_analyzer.reset_intensity_filter()
+        
+        # Generate updated visualization
+        overlay_image = sam_analyzer.create_mask_overlay()
+        overlay_base64 = numpy_to_base64(overlay_image)
+        
+        return jsonify({
+            'success': True,
+            'image': f"data:image/png;base64,{overlay_base64}",
+            'message': 'Intensity filter reset'
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_intensity_statistics', methods=['POST'])
+def get_intensity_statistics():
+    """Get overall intensity statistics for all masks"""
+    try:
+        sam_analyzer = get_sam_analyzer()
+        
+        if sam_analyzer is None:
+            return jsonify({'success': False, 'error': 'SAM analyzer not available'})
+        
+        # Get intensity statistics
+        stats = sam_analyzer.get_intensity_statistics()
+        
+        return jsonify({
+            'success': True,
+            'statistics': stats
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/export_diameter_data', methods=['POST'])
+def export_diameter_data():
+    """Export diameter data grouped by intensity classification"""
+    try:
+        sam_analyzer = get_sam_analyzer()
+        
+        if sam_analyzer is None:
+            return jsonify({'success': False, 'error': 'SAM analyzer not available'})
+        
+        # Get diameter data by group
+        diameter_data = sam_analyzer.get_diameter_data_by_group()
+        
+        # Format as text
+        output_lines = []
+        output_lines.append("# Diameter Data Export")
+        output_lines.append(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        output_lines.append("")
+        
+        # High intensity group
+        high_intensity = diameter_data.get('high_intensity', [])
+        output_lines.append(f"# High Intensity Masks (Red) - Count: {len(high_intensity)}")
+        if high_intensity:
+            output_lines.append("High_Intensity_Diameters:")
+            for i, diameter in enumerate(high_intensity):
+                output_lines.append(f"{i+1}: {diameter:.2f}")
+        else:
+            output_lines.append("High_Intensity_Diameters: None")
+        output_lines.append("")
+        
+        # Low intensity group  
+        low_intensity = diameter_data.get('low_intensity', [])
+        output_lines.append(f"# Low Intensity Masks (Blue) - Count: {len(low_intensity)}")
+        if low_intensity:
+            output_lines.append("Low_Intensity_Diameters:")
+            for i, diameter in enumerate(low_intensity):
+                output_lines.append(f"{i+1}: {diameter:.2f}")
+        else:
+            output_lines.append("Low_Intensity_Diameters: None")
+        
+        # Join all lines
+        export_text = "\n".join(output_lines)
+        
+        return jsonify({
+            'success': True,
+            'data': export_text,
+            'filename': f'diameter_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
+        })
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 if __name__ == '__main__':
     print("🚀 Starting Interactive SAM Segmentation Server...")
     

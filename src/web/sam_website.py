@@ -955,6 +955,148 @@ def get_active_masks_count():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/apply_intensity_filter', methods=['POST'])
+def apply_intensity_filter():
+    """Apply pixel intensity filter to separate masks into groups"""
+    try:
+        data = request.get_json()
+        threshold = data.get('threshold', 128)
+        filter_mode = data.get('filter_mode', 'mean')
+        
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available for filtering'})
+        
+        # Apply intensity filter
+        filter_results = engine.sam_analyzer.apply_intensity_filter(
+            threshold=float(threshold),
+            filter_mode=filter_mode
+        )
+        
+        # Create updated overlay with color-coded masks
+        overlay_image = engine.sam_analyzer.create_mask_overlay(
+            show_labels=False,
+            alpha=0.3
+        )
+        
+        overlay_base64 = engine.get_image_as_base64(overlay_image)
+        
+        return jsonify({
+            'success': True,
+            'image': overlay_base64,
+            'filter_results': filter_results,
+            'threshold': threshold,
+            'filter_mode': filter_mode,
+            'message': f'Filter applied! High: {filter_results["high_intensity_count"]}, Low: {filter_results["low_intensity_count"]}'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/reset_intensity_filter', methods=['POST'])
+def reset_intensity_filter():
+    """Reset intensity filter to unfiltered state"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        # Reset intensity filter
+        engine.sam_analyzer.reset_intensity_filter()
+        
+        # Create updated overlay
+        overlay_image = engine.sam_analyzer.create_mask_overlay(
+            show_labels=False,
+            alpha=0.3
+        )
+        
+        overlay_base64 = engine.get_image_as_base64(overlay_image)
+        
+        return jsonify({
+            'success': True,
+            'image': overlay_base64,
+            'message': 'Intensity filter reset - all masks are unfiltered'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_intensity_statistics', methods=['POST'])
+def get_intensity_statistics():
+    """Get intensity statistics for all masks"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        statistics = engine.sam_analyzer.get_intensity_statistics()
+        
+        return jsonify({
+            'success': True,
+            'statistics': statistics
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/export_diameter_data', methods=['POST'])
+def export_diameter_data():
+    """Export diameter data by intensity groups (excluding removed masks)"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        diameter_data = engine.sam_analyzer.get_diameter_data_by_group()
+        
+        # Format data for export
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"diameter_export_{timestamp}.txt"
+        
+        export_lines = []
+        export_lines.append(f"Diameter Export - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        export_lines.append("=" * 50)
+        export_lines.append("")
+        
+        # High intensity group
+        high_intensity = diameter_data.get('high_intensity', [])
+        export_lines.append(f"HIGH INTENSITY GROUP (Red) - {len(high_intensity)} masks:")
+        if high_intensity:
+            export_lines.extend([f"{i+1:3d}. {diameter:.2f}" for i, diameter in enumerate(high_intensity)])
+        else:
+            export_lines.append("  No masks in this group")
+        export_lines.append("")
+        
+        # Low intensity group
+        low_intensity = diameter_data.get('low_intensity', [])
+        export_lines.append(f"LOW INTENSITY GROUP (Blue) - {len(low_intensity)} masks:")
+        if low_intensity:
+            export_lines.extend([f"{i+1:3d}. {diameter:.2f}" for i, diameter in enumerate(low_intensity)])
+        else:
+            export_lines.append("  No masks in this group")
+        export_lines.append("")
+        
+        # Summary statistics
+        all_diameters = high_intensity + low_intensity
+        if all_diameters:
+            export_lines.append("SUMMARY STATISTICS:")
+            export_lines.append(f"Total masks exported: {len(all_diameters)}")
+            export_lines.append(f"High intensity: {len(high_intensity)} ({len(high_intensity)/len(all_diameters)*100:.1f}%)")
+            export_lines.append(f"Low intensity: {len(low_intensity)} ({len(low_intensity)/len(all_diameters)*100:.1f}%)")
+            export_lines.append(f"Average diameter: {np.mean(all_diameters):.2f}")
+            export_lines.append(f"Min diameter: {np.min(all_diameters):.2f}")
+            export_lines.append(f"Max diameter: {np.max(all_diameters):.2f}")
+        
+        export_text = "\n".join(export_lines)
+        
+        return jsonify({
+            'success': True,
+            'data': export_text,
+            'filename': filename,
+            'high_count': len(high_intensity),
+            'low_count': len(low_intensity),
+            'total_count': len(all_diameters)
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 if __name__ == '__main__':
     # Ensure required directories exist
     os.makedirs(templates_dir, exist_ok=True)
