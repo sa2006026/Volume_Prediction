@@ -1043,7 +1043,13 @@ def export_diameter_data():
         if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
             return jsonify({'success': False, 'error': 'No masks available'})
         
-        diameter_data = engine.sam_analyzer.get_diameter_data_by_group()
+        # Use unit-converted data if conversion is enabled
+        if engine.sam_analyzer.conversion_enabled:
+            diameter_data = engine.sam_analyzer.get_diameter_data_by_group_with_units()
+            unit_name = diameter_data.get('unit_name', 'pixels')
+        else:
+            diameter_data = engine.sam_analyzer.get_diameter_data_by_group()
+            unit_name = 'pixels'
         
         # Format data for export
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1052,13 +1058,14 @@ def export_diameter_data():
         export_lines = []
         export_lines.append(f"Diameter Export - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         export_lines.append("=" * 50)
+        export_lines.append(f"Units: {unit_name}")
         export_lines.append("")
         
         # High intensity group
         high_intensity = diameter_data.get('high_intensity', [])
         export_lines.append(f"HIGH INTENSITY GROUP (Red) - {len(high_intensity)} masks:")
         if high_intensity:
-            export_lines.extend([f"{i+1:3d}. {diameter:.2f}" for i, diameter in enumerate(high_intensity)])
+            export_lines.extend([f"{i+1:3d}. {diameter:.2f} {unit_name}" for i, diameter in enumerate(high_intensity)])
         else:
             export_lines.append("  No masks in this group")
         export_lines.append("")
@@ -1067,7 +1074,7 @@ def export_diameter_data():
         low_intensity = diameter_data.get('low_intensity', [])
         export_lines.append(f"LOW INTENSITY GROUP (Blue) - {len(low_intensity)} masks:")
         if low_intensity:
-            export_lines.extend([f"{i+1:3d}. {diameter:.2f}" for i, diameter in enumerate(low_intensity)])
+            export_lines.extend([f"{i+1:3d}. {diameter:.2f} {unit_name}" for i, diameter in enumerate(low_intensity)])
         else:
             export_lines.append("  No masks in this group")
         export_lines.append("")
@@ -1079,9 +1086,9 @@ def export_diameter_data():
             export_lines.append(f"Total masks exported: {len(all_diameters)}")
             export_lines.append(f"High intensity: {len(high_intensity)} ({len(high_intensity)/len(all_diameters)*100:.1f}%)")
             export_lines.append(f"Low intensity: {len(low_intensity)} ({len(low_intensity)/len(all_diameters)*100:.1f}%)")
-            export_lines.append(f"Average diameter: {np.mean(all_diameters):.2f}")
-            export_lines.append(f"Min diameter: {np.min(all_diameters):.2f}")
-            export_lines.append(f"Max diameter: {np.max(all_diameters):.2f}")
+            export_lines.append(f"Average diameter: {np.mean(all_diameters):.2f} {unit_name}")
+            export_lines.append(f"Min diameter: {np.min(all_diameters):.2f} {unit_name}")
+            export_lines.append(f"Max diameter: {np.max(all_diameters):.2f} {unit_name}")
         
         export_text = "\n".join(export_lines)
         
@@ -1091,7 +1098,126 @@ def export_diameter_data():
             'filename': filename,
             'high_count': len(high_intensity),
             'low_count': len(low_intensity),
-            'total_count': len(all_diameters)
+            'total_count': len(all_diameters),
+            'unit_name': unit_name,
+            'conversion_enabled': engine.sam_analyzer.conversion_enabled
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/set_pixel_conversion', methods=['POST'])
+def set_pixel_conversion():
+    """Set pixel-to-unit conversion ratio"""
+    try:
+        data = request.get_json()
+        pixel_distance = data.get('pixel_distance', 0)
+        unit_distance = data.get('unit_distance', 0)
+        unit_name = data.get('unit_name', 'μm')
+        
+        if engine.sam_analyzer is None:
+            return jsonify({'success': False, 'error': 'No image loaded'})
+        
+        success = engine.sam_analyzer.set_pixel_to_unit_conversion(
+            pixel_distance=float(pixel_distance),
+            unit_distance=float(unit_distance),
+            unit_name=str(unit_name)
+        )
+        
+        if success:
+            conversion_info = engine.sam_analyzer.get_conversion_info()
+            return jsonify({
+                'success': True,
+                'conversion_info': conversion_info,
+                'message': f'Conversion set: {pixel_distance} pixels = {unit_distance} {unit_name}'
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Invalid conversion parameters'})
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_conversion_info', methods=['POST'])
+def get_conversion_info():
+    """Get current pixel-to-unit conversion settings"""
+    try:
+        if engine.sam_analyzer is None:
+            return jsonify({'success': False, 'error': 'No image loaded'})
+        
+        conversion_info = engine.sam_analyzer.get_conversion_info()
+        
+        return jsonify({
+            'success': True,
+            'conversion_info': conversion_info
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/reset_conversion', methods=['POST'])
+def reset_conversion():
+    """Reset pixel-to-unit conversion settings"""
+    try:
+        if engine.sam_analyzer is None:
+            return jsonify({'success': False, 'error': 'No image loaded'})
+        
+        engine.sam_analyzer.reset_conversion()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Pixel-to-unit conversion reset'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/export_diameter_excel', methods=['POST'])
+def export_diameter_excel():
+    """Export diameter data as Excel file with separate columns for high/low intensity groups"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        # Use unit-converted data if conversion is enabled
+        if engine.sam_analyzer.conversion_enabled:
+            diameter_data = engine.sam_analyzer.get_diameter_data_by_group_with_units()
+            unit_name = diameter_data.get('unit_name', 'pixels')
+        else:
+            diameter_data = engine.sam_analyzer.get_diameter_data_by_group()
+            unit_name = 'pixels'
+        
+        # Get diameter lists
+        high_intensity = diameter_data.get('high_intensity', [])
+        low_intensity = diameter_data.get('low_intensity', [])
+        
+        # Create Excel-like data structure (CSV format for simplicity)
+        max_length = max(len(high_intensity), len(low_intensity))
+        
+        # Create CSV content
+        csv_lines = []
+        csv_lines.append(f"High Intensity Diameter ({unit_name}),Low Intensity Diameter ({unit_name})")
+        
+        for i in range(max_length):
+            high_value = f"{high_intensity[i]:.2f}" if i < len(high_intensity) else ""
+            low_value = f"{low_intensity[i]:.2f}" if i < len(low_intensity) else ""
+            csv_lines.append(f"{high_value},{low_value}")
+        
+        csv_content = "\n".join(csv_lines)
+        
+        # Format filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"diameter_export_{timestamp}.csv"
+        
+        return jsonify({
+            'success': True,
+            'data': csv_content,
+            'filename': filename,
+            'high_count': len(high_intensity),
+            'low_count': len(low_intensity),
+            'total_count': len(high_intensity) + len(low_intensity),
+            'unit_name': unit_name,
+            'conversion_enabled': engine.sam_analyzer.conversion_enabled,
+            'content_type': 'text/csv'
         })
         
     except Exception as e:
