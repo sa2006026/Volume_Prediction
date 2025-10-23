@@ -1078,14 +1078,12 @@ def apply_intensity_filter():
         if not filter_results['success']:
             return jsonify(filter_results)
         
-        # Create updated overlay using clean clear-and-rebuild approach
-        overlay_image = engine.create_clean_filtered_overlay()
-        
-        overlay_base64 = engine.get_image_as_base64(overlay_image)
+        # Return base image only to avoid double-drawing; frontend will draw latest boxes
+        base_image_b64 = engine.get_image_as_base64()
         
         return jsonify({
             'success': True,
-            'image': overlay_base64,
+            'image': base_image_b64,
             'filter_results': filter_results,
             'min_intensity': min_intensity,
             'max_intensity': max_intensity,
@@ -1105,17 +1103,12 @@ def reset_intensity_filter():
         # Reset intensity filter
         engine.sam_analyzer.reset_intensity_filter()
         
-        # Create updated overlay showing all masks (since filter is reset)
-        overlay_image = engine.sam_analyzer.create_mask_overlay(
-            show_labels=False,
-            alpha=0.3
-        )
-        
-        overlay_base64 = engine.get_image_as_base64(overlay_image)
+        # Return base image only; frontend redraws according to current states
+        base_image_b64 = engine.get_image_as_base64()
         
         return jsonify({
             'success': True,
-            'image': overlay_base64,
+            'image': base_image_b64,
             'message': 'Intensity filter reset - all masks are unfiltered'
         })
         
