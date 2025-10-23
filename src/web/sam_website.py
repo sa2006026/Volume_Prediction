@@ -114,6 +114,18 @@ class SAMWebEngine:
         # Check if any masks are in 'intensity_filtered' state
         return any(state == 'intensity_filtered' for state in self.sam_analyzer.mask_states)
     
+    def is_overlap_filter_active(self) -> bool:
+        """Check if overlap filtering is currently active"""
+        if self.sam_analyzer is None or not self.sam_analyzer.mask_states:
+            return False
+        
+        # Check if any masks are in 'overlap_filtered' state
+        return any(state == 'overlap_filtered' for state in self.sam_analyzer.mask_states)
+    
+    def is_any_filter_active(self) -> bool:
+        """Check if any quality filtering is currently active"""
+        return self.is_intensity_filter_active() or self.is_overlap_filter_active()
+    
     def create_clean_filtered_overlay(self):
         """
         Create a clean overlay using the clear-and-rebuild approach:
@@ -252,8 +264,8 @@ class SAMWebEngine:
         
         return True
     
-    def perform_sam_segmentation(self):
-        """Perform SAM segmentation with current parameters"""
+    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.4):
+        """Perform SAM segmentation with current parameters and optional overlap filtering"""
         if self.sam_analyzer is None:
             raise ValueError("No image loaded")
         
@@ -264,8 +276,12 @@ class SAMWebEngine:
             self.current_points_per_side
         )
         
-        # Perform segmentation
-        mask_stats = self.sam_analyzer.segment_droplets(method="sam")
+        # Perform segmentation with configurable overlap filtering
+        mask_stats = self.sam_analyzer.segment_droplets(
+            method="sam", 
+            apply_overlap_filter=apply_overlap_filter, 
+            overlap_threshold=overlap_threshold
+        )
         
         if not mask_stats:
             return None, None, []
@@ -285,13 +301,13 @@ class SAMWebEngine:
         
         mask_info = self.sam_analyzer.get_mask_at_point(x, y)
         
-        # If intensity filter is active, only return info for non-filtered masks
-        if mask_info and self.is_intensity_filter_active():
+        # If any filter is active, only return info for non-filtered masks
+        if mask_info and self.is_any_filter_active():
             mask_id = mask_info.get('mask_id', -1)
             if mask_id >= 0 and mask_id < len(self.sam_analyzer.mask_states):
                 mask_state = self.sam_analyzer.mask_states[mask_id]
-                if mask_state == 'intensity_filtered':
-                    return None  # Don't return info for intensity filtered masks
+                if mask_state in ['intensity_filtered', 'overlap_filtered']:
+                    return None  # Don't return info for filtered masks
         
         return mask_info
     
@@ -378,12 +394,12 @@ class SAMWebEngine:
         # Find which mask contains this point
         for i, mask in enumerate(self.sam_analyzer.masks):
             if y < mask.shape[0] and x < mask.shape[1] and mask[y, x] > 0:
-                # Check if intensity filter is active and skip filtered masks
-                if self.is_intensity_filter_active():
+                # Check if any filter is active and skip filtered masks
+                if self.is_any_filter_active():
                     mask_state = (self.sam_analyzer.mask_states[i] 
                                 if i < len(self.sam_analyzer.mask_states) else 'active')
-                    if mask_state == 'intensity_filtered':
-                        continue  # Skip intensity filtered masks
+                    if mask_state in ['intensity_filtered', 'overlap_filtered']:
+                        continue  # Skip filtered masks
                 
                 # Create a focused preview showing only this specific blob
                 preview_image = self._create_blob_focused_preview(i, x, y, preview_size=(200, 200))
@@ -696,6 +712,8 @@ def run_sam_segmentation():
         backend = data.get('backend', 'pytorch')
         performance_mode = data.get('performance_mode', False)
         use_gpu = data.get('use_gpu', True)
+        apply_overlap_filter = data.get('apply_overlap_filter', True)
+        overlap_threshold = data.get('overlap_threshold', 0.4)
         
         if engine.current_image is None:
             return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
@@ -709,7 +727,10 @@ def run_sam_segmentation():
             performance_mode=performance_mode,
             use_gpu=use_gpu
         )
-        overlay_image, summary, mask_stats = engine.perform_sam_segmentation()
+        overlay_image, summary, mask_stats = engine.perform_sam_segmentation(
+            apply_overlap_filter=apply_overlap_filter,
+            overlap_threshold=overlap_threshold
+        )
         
         if overlay_image is None:
             return jsonify({
@@ -1106,6 +1127,64 @@ def get_intensity_statistics():
         return jsonify({
             'success': True,
             'statistics': statistics
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/apply_overlap_filter', methods=['POST'])
+def apply_overlap_filter():
+    """Apply overlap filter to remove duplicate masks"""
+    try:
+        data = request.get_json()
+        overlap_threshold = data.get('overlap_threshold', 0.4)
+        
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available for filtering'})
+        
+        # Apply overlap filter
+        filter_results = engine.sam_analyzer.apply_overlap_filter(
+            overlap_threshold=float(overlap_threshold)
+        )
+        
+        if not filter_results['success']:
+            return jsonify(filter_results)
+        
+        # Create updated overlay using clean clear-and-rebuild approach
+        overlay_image = engine.create_clean_filtered_overlay()
+        
+        overlay_base64 = engine.get_image_as_base64(overlay_image)
+        
+        return jsonify({
+            'success': True,
+            'image': overlay_base64,
+            'filter_results': filter_results,
+            'overlap_threshold': overlap_threshold,
+            'message': f'Overlap filter applied! Kept: {filter_results["kept_count"]}, Removed: {filter_results["removed_count"]} duplicate masks'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/reset_overlap_filter', methods=['POST'])
+def reset_overlap_filter():
+    """Reset overlap filter to unfiltered state"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        # Reset overlap filter
+        engine.sam_analyzer.reset_overlap_filter()
+        
+        # Create updated overlay using clean approach
+        overlay_image = engine.create_clean_filtered_overlay()
+        
+        overlay_base64 = engine.get_image_as_base64(overlay_image)
+        
+        return jsonify({
+            'success': True,
+            'image': overlay_base64,
+            'message': 'Overlap filter reset - all duplicate masks are restored'
         })
         
     except Exception as e:
