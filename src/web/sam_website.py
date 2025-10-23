@@ -5,7 +5,11 @@ A dedicated web interface for SAM-based image segmentation with interactive mask
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
-from flask.json.provider import DefaultJSONProvider
+try:
+    from flask.json.provider import DefaultJSONProvider
+except ImportError:
+    # For older Flask versions
+    from flask.json import JSONEncoder as DefaultJSONProvider
 import cv2
 import numpy as np
 import os
@@ -63,7 +67,11 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 templates_dir = os.path.join(project_root, 'templates')
 
 app = Flask(__name__, template_folder=templates_dir)
-app.json = NumpyJSONProvider(app)
+try:
+    app.json = NumpyJSONProvider(app)
+except TypeError:
+    # For older Flask versions, use JSONEncoder
+    app.json_encoder = NumpyJSONProvider
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max file size
 
 class SAMWebEngine:
@@ -713,6 +721,14 @@ def get_mask_info():
             # Add quality score
             mask_info['quality_score'] = mask_info['circularity'] * 0.6 + (1.0 - abs(1.0 - mask_info['aspect_ratio'])) * 0.4
             
+            # Add unit conversion information if enabled
+            if engine.sam_analyzer and engine.sam_analyzer.conversion_enabled:
+                mask_id = mask_info.get('mask_id', -1)
+                if mask_id >= 0:
+                    converted_stats = engine.sam_analyzer.get_mask_statistics_with_units(mask_id)
+                    if converted_stats:
+                        mask_info.update(converted_stats)
+            
             return jsonify({
                 'success': True,
                 'has_mask': True,
@@ -766,6 +782,22 @@ def get_all_masks():
     try:
         masks, summary = engine.get_all_masks_info()
         
+        # Add unit conversion information if enabled
+        if engine.sam_analyzer and engine.sam_analyzer.conversion_enabled:
+            converted_masks = []
+            for mask in masks:
+                mask_id = mask.get('mask_id', -1)
+                if mask_id >= 0:
+                    converted_stats = engine.sam_analyzer.get_mask_statistics_with_units(mask_id)
+                    if converted_stats:
+                        mask.update(converted_stats)
+                converted_masks.append(mask)
+            masks = converted_masks
+            
+            # Add conversion info to summary
+            conversion_info = engine.sam_analyzer.get_conversion_info()
+            summary['conversion_info'] = conversion_info
+        
         return jsonify({
             'success': True,
             'masks_count': len(masks),
@@ -807,6 +839,14 @@ def get_mask_preview():
         preview_base64, mask_info = engine.get_mask_preview_at_point(int(x), int(y))
         
         if preview_base64 and mask_info:
+            # Add unit conversion information if enabled
+            if engine.sam_analyzer and engine.sam_analyzer.conversion_enabled:
+                mask_id = mask_info.get('mask_id', -1)
+                if mask_id >= 0:
+                    converted_stats = engine.sam_analyzer.get_mask_statistics_with_units(mask_id)
+                    if converted_stats:
+                        mask_info.update(converted_stats)
+            
             return jsonify({
                 'success': True,
                 'has_mask': True,
@@ -957,22 +997,25 @@ def get_active_masks_count():
 
 @app.route('/apply_intensity_filter', methods=['POST'])
 def apply_intensity_filter():
-    """Apply pixel intensity filter to separate masks into groups"""
+    """Apply intensity filter to filter out masks based on intensity range"""
     try:
         data = request.get_json()
-        threshold = data.get('threshold', 128)
-        filter_mode = data.get('filter_mode', 'mean')
+        min_intensity = data.get('min_intensity', 0)
+        max_intensity = data.get('max_intensity', 255)
         
         if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
             return jsonify({'success': False, 'error': 'No masks available for filtering'})
         
-        # Apply intensity filter
+        # Apply intensity filter with min/max range
         filter_results = engine.sam_analyzer.apply_intensity_filter(
-            threshold=float(threshold),
-            filter_mode=filter_mode
+            min_intensity=float(min_intensity),
+            max_intensity=float(max_intensity)
         )
         
-        # Create updated overlay with color-coded masks
+        if not filter_results['success']:
+            return jsonify(filter_results)
+        
+        # Create updated overlay with filtered masks
         overlay_image = engine.sam_analyzer.create_mask_overlay(
             show_labels=False,
             alpha=0.3
@@ -984,9 +1027,9 @@ def apply_intensity_filter():
             'success': True,
             'image': overlay_base64,
             'filter_results': filter_results,
-            'threshold': threshold,
-            'filter_mode': filter_mode,
-            'message': f'Filter applied! High: {filter_results["high_intensity_count"]}, Low: {filter_results["low_intensity_count"]}'
+            'min_intensity': min_intensity,
+            'max_intensity': max_intensity,
+            'message': f'Intensity filter applied! Kept: {filter_results["kept_count"]}, Filtered: {filter_results["filtered_count"]}'
         })
         
     except Exception as e:
@@ -1223,18 +1266,95 @@ def export_diameter_excel():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/export_mask_csv', methods=['POST'])
+def export_mask_csv():
+    """Export mask information as CSV with center location, diameter, and pixel intensity"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No mask data available. Please run segmentation first.'})
+        
+        if not engine.sam_analyzer.mask_statistics:
+            return jsonify({'success': False, 'error': 'No mask statistics available. Please run segmentation first.'})
+        
+        # Create CSV content - only export active masks (not filtered out)
+        csv_lines = []
+        
+        # Determine if we should use units
+        use_units = engine.sam_analyzer.conversion_enabled
+        unit_name = engine.sam_analyzer.unit_name if use_units else "pixels"
+        area_unit = f"{unit_name}²" if use_units else "pixels²"
+        
+        # Create header with appropriate units
+        if use_units:
+            csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity")
+        else:
+            csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity")
+        
+        active_mask_count = 0
+        for i, stats in enumerate(engine.sam_analyzer.mask_statistics):
+            # Get mask state
+            mask_state = engine.sam_analyzer.mask_states[i] if i < len(engine.sam_analyzer.mask_states) else 'active'
+            
+            # Only export masks that are active (not filtered out)
+            if mask_state == 'active':
+                # Extract the required data
+                mask_id = stats.get('mask_id', i)
+                center_x = stats.get('center_x', 0)
+                center_y = stats.get('center_y', 0)
+                diameter = stats.get('diameter', 0)
+                mean_intensity = stats.get('mean_intensity', 0)
+                area = stats.get('area', 0)
+                circularity = stats.get('circularity', 0)
+                
+                # Convert to units if conversion is enabled
+                if use_units:
+                    diameter = engine.sam_analyzer.convert_pixels_to_units(diameter)
+                    area = engine.sam_analyzer.convert_area_to_units(area)
+                
+                # Add row to CSV
+                csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f}")
+                active_mask_count += 1
+        
+        # Check if there are any active masks to export
+        if active_mask_count == 0:
+            return jsonify({'success': False, 'error': 'No active masks to export. All masks have been filtered out.'})
+        
+        # Join all lines
+        csv_content = "\n".join(csv_lines)
+        
+        # Generate filename with timestamp and unit info
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unit_suffix = f"_{unit_name}" if use_units else "_pixels"
+        filename = f'mask_data_filtered{unit_suffix}_{timestamp}.csv'
+        
+        return jsonify({
+            'success': True,
+            'data': csv_content,
+            'filename': filename,
+            'exported_masks': active_mask_count,
+            'total_masks': len(engine.sam_analyzer.mask_statistics),
+            'units_used': unit_name,
+            'conversion_enabled': use_units
+        })
+    
+    except Exception as e:
+        print(f"❌ Error in CSV export: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
 if __name__ == '__main__':
     # Ensure required directories exist
     os.makedirs(templates_dir, exist_ok=True)
     os.makedirs(os.path.join(project_root, 'uploads'), exist_ok=True)
     
     print("🚀 Starting SAM Interactive Segmentation Website...")
-    print("📍 Server will be available at: http://localhost:5001")
+    print("📍 Server will be available at: http://localhost:5014")
     print("🎯 Features: Upload images, configure SAM parameters, interactive mask management")
     print()
     
     try:
-        app.run(host='127.0.0.1', port=5001, debug=False, use_reloader=False)
+        app.run(host='127.0.0.1', port=5014, debug=False, use_reloader=False)
     except Exception as e:
         print(f"❌ Error starting server: {e}")
         import traceback

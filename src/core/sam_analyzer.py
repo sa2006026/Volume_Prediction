@@ -37,6 +37,13 @@ class SAMAnalyzer:
         self.sam_initialized = False
         self.mask_states = []  # Track active/removed state for each mask
         
+        # Unit conversion settings
+        self.conversion_enabled = False
+        self.pixels_per_unit = 1.0  # pixels per unit (e.g., pixels per μm)
+        self.unit_name = "μm"
+        self.pixel_distance = 0.0  # reference pixel distance
+        self.unit_distance = 0.0   # corresponding unit distance
+        
         # Initialize SAM model
         self._initialize_sam()
     
@@ -441,6 +448,9 @@ class SAMAnalyzer:
                 mask_alpha = alpha
                 contour_thickness = 2
                 text_color = (255, 255, 255)
+            elif mask_state == 'intensity_filtered':
+                # Skip intensity filtered masks - don't display them at all
+                continue
             else:  # removed
                 color = red_color  # Keep red color but will be dashed
                 mask_alpha = alpha * 0.2  # Much more transparent for removed masks
@@ -772,3 +782,295 @@ class SAMAnalyzer:
             
             draw_dash = not draw_dash
             current_distance = next_distance
+    
+    def apply_intensity_filter(self, min_intensity: float = 0, max_intensity: float = 255) -> Dict:
+        """
+        Filter masks based on their mean intensity values
+        
+        Args:
+            min_intensity: Minimum intensity threshold (inclusive)
+            max_intensity: Maximum intensity threshold (inclusive)
+            
+        Returns:
+            Dictionary with filter results
+        """
+        if not self.mask_statistics:
+            return {'success': False, 'error': 'No masks available for filtering'}
+        
+        filtered_count = 0
+        kept_count = 0
+        
+        # Apply intensity filter to mask states
+        for i, stats in enumerate(self.mask_statistics):
+            mean_intensity = stats.get('mean_intensity', 0)
+            
+            # Check if intensity is within the specified range
+            if min_intensity <= mean_intensity <= max_intensity:
+                # Keep the mask (set to active if it was removed by intensity filter)
+                if i < len(self.mask_states):
+                    if self.mask_states[i] == 'intensity_filtered':
+                        self.mask_states[i] = 'active'
+                kept_count += 1
+            else:
+                # Filter out the mask
+                if i < len(self.mask_states):
+                    self.mask_states[i] = 'intensity_filtered'
+                else:
+                    # Extend states if needed
+                    while len(self.mask_states) <= i:
+                        self.mask_states.append('active')
+                    self.mask_states[i] = 'intensity_filtered'
+                filtered_count += 1
+        
+        return {
+            'success': True,
+            'filtered_count': filtered_count,
+            'kept_count': kept_count,
+            'total_count': len(self.mask_statistics),
+            'min_intensity': min_intensity,
+            'max_intensity': max_intensity
+        }
+    
+    def reset_intensity_filter(self):
+        """Reset intensity filter - restore all intensity-filtered masks to active"""
+        if not self.mask_states:
+            return
+        
+        for i in range(len(self.mask_states)):
+            if self.mask_states[i] == 'intensity_filtered':
+                self.mask_states[i] = 'active'
+    
+    def get_intensity_statistics(self) -> Dict:
+        """
+        Get intensity statistics for all masks
+        
+        Returns:
+            Dictionary with intensity statistics
+        """
+        if not self.mask_statistics:
+            return {}
+        
+        intensities = [stats.get('mean_intensity', 0) for stats in self.mask_statistics]
+        
+        if not intensities:
+            return {}
+        
+        return {
+            'min_intensity': float(np.min(intensities)),
+            'max_intensity': float(np.max(intensities)),
+            'mean_intensity': float(np.mean(intensities)),
+            'std_intensity': float(np.std(intensities)),
+            'total_masks': len(intensities)
+        }
+    
+    def set_pixel_to_unit_conversion(self, pixel_distance: float, unit_distance: float, unit_name: str = "μm") -> bool:
+        """
+        Set pixel-to-unit conversion ratio
+        
+        Args:
+            pixel_distance: Distance in pixels (e.g., 100 pixels)
+            unit_distance: Corresponding distance in real units (e.g., 50 μm)
+            unit_name: Name of the unit (default: μm)
+            
+        Returns:
+            True if conversion was set successfully, False otherwise
+        """
+        if pixel_distance <= 0 or unit_distance <= 0:
+            return False
+        
+        self.pixel_distance = float(pixel_distance)
+        self.unit_distance = float(unit_distance)
+        self.unit_name = str(unit_name)
+        self.pixels_per_unit = pixel_distance / unit_distance
+        self.conversion_enabled = True
+        
+        print(f"✅ Conversion set: {pixel_distance} pixels = {unit_distance} {unit_name}")
+        print(f"   Ratio: {self.pixels_per_unit:.4f} pixels per {unit_name}")
+        
+        return True
+    
+    def reset_conversion(self):
+        """Reset pixel-to-unit conversion settings"""
+        self.conversion_enabled = False
+        self.pixels_per_unit = 1.0
+        self.unit_name = "μm"
+        self.pixel_distance = 0.0
+        self.unit_distance = 0.0
+        print("🔄 Pixel-to-unit conversion reset")
+    
+    def get_conversion_info(self) -> Dict:
+        """
+        Get current conversion settings
+        
+        Returns:
+            Dictionary with conversion information
+        """
+        return {
+            'enabled': self.conversion_enabled,
+            'pixels_per_unit': self.pixels_per_unit,
+            'unit_name': self.unit_name,
+            'pixel_distance': self.pixel_distance,
+            'unit_distance': self.unit_distance,
+            'conversion_ratio': f"{self.pixel_distance} pixels = {self.unit_distance} {self.unit_name}" if self.conversion_enabled else None
+        }
+    
+    def convert_pixels_to_units(self, pixel_value: float) -> float:
+        """
+        Convert pixel measurement to real units
+        
+        Args:
+            pixel_value: Value in pixels
+            
+        Returns:
+            Value in real units
+        """
+        if not self.conversion_enabled or self.pixels_per_unit <= 0:
+            return pixel_value
+        
+        return pixel_value / self.pixels_per_unit
+    
+    def convert_area_to_units(self, pixel_area: float) -> float:
+        """
+        Convert pixel area to real units (area conversion is squared)
+        
+        Args:
+            pixel_area: Area in pixels²
+            
+        Returns:
+            Area in real units²
+        """
+        if not self.conversion_enabled or self.pixels_per_unit <= 0:
+            return pixel_area
+        
+        return pixel_area / (self.pixels_per_unit ** 2)
+    
+    def get_mask_statistics_with_units(self, mask_id: int) -> Optional[Dict]:
+        """
+        Get mask statistics with unit conversion applied
+        
+        Args:
+            mask_id: Index of the mask
+            
+        Returns:
+            Mask statistics with converted units, or None if mask doesn't exist
+        """
+        if mask_id < 0 or mask_id >= len(self.mask_statistics):
+            return None
+        
+        stats = self.mask_statistics[mask_id].copy()
+        
+        if self.conversion_enabled:
+            # Convert linear measurements
+            stats['diameter_units'] = self.convert_pixels_to_units(stats['diameter'])
+            stats['radius_units'] = self.convert_pixels_to_units(stats['radius'])
+            stats['perimeter_units'] = self.convert_pixels_to_units(stats['perimeter'])
+            stats['equivalent_diameter_units'] = self.convert_pixels_to_units(stats['equivalent_diameter'])
+            
+            # Convert area measurements
+            stats['area_units'] = self.convert_area_to_units(stats['area'])
+            
+            # Add unit information
+            stats['unit_name'] = self.unit_name
+            stats['conversion_enabled'] = True
+        else:
+            stats['conversion_enabled'] = False
+        
+        return stats
+    
+    def get_all_mask_statistics_with_units(self) -> List[Dict]:
+        """
+        Get all mask statistics with unit conversion applied
+        
+        Returns:
+            List of mask statistics with converted units
+        """
+        results = []
+        for i in range(len(self.mask_statistics)):
+            stats = self.get_mask_statistics_with_units(i)
+            if stats:
+                results.append(stats)
+        
+        return results
+    
+    def get_diameter_data_by_group_with_units(self) -> Dict:
+        """
+        Get diameter data grouped by intensity with unit conversion
+        
+        Returns:
+            Dictionary with high/low intensity diameter lists in real units
+        """
+        if not self.mask_statistics:
+            return {'high_intensity': [], 'low_intensity': [], 'unit_name': self.unit_name}
+        
+        # Get intensity statistics to determine threshold
+        intensities = [stats.get('mean_intensity', 0) for stats in self.mask_statistics]
+        if not intensities:
+            return {'high_intensity': [], 'low_intensity': [], 'unit_name': self.unit_name}
+        
+        intensity_threshold = np.median(intensities)
+        
+        high_intensity_diameters = []
+        low_intensity_diameters = []
+        
+        for i, stats in enumerate(self.mask_statistics):
+            # Only include active masks (not filtered out)
+            mask_state = self.mask_states[i] if i < len(self.mask_states) else 'active'
+            if mask_state != 'active':
+                continue
+            
+            diameter = stats.get('diameter', 0)
+            mean_intensity = stats.get('mean_intensity', 0)
+            
+            # Convert to units if conversion is enabled
+            if self.conversion_enabled:
+                diameter = self.convert_pixels_to_units(diameter)
+            
+            if mean_intensity >= intensity_threshold:
+                high_intensity_diameters.append(diameter)
+            else:
+                low_intensity_diameters.append(diameter)
+        
+        return {
+            'high_intensity': high_intensity_diameters,
+            'low_intensity': low_intensity_diameters,
+            'unit_name': self.unit_name if self.conversion_enabled else 'pixels'
+        }
+    
+    def get_diameter_data_by_group(self) -> Dict:
+        """
+        Get diameter data grouped by intensity (original pixel values)
+        
+        Returns:
+            Dictionary with high/low intensity diameter lists in pixels
+        """
+        if not self.mask_statistics:
+            return {'high_intensity': [], 'low_intensity': []}
+        
+        # Get intensity statistics to determine threshold
+        intensities = [stats.get('mean_intensity', 0) for stats in self.mask_statistics]
+        if not intensities:
+            return {'high_intensity': [], 'low_intensity': []}
+        
+        intensity_threshold = np.median(intensities)
+        
+        high_intensity_diameters = []
+        low_intensity_diameters = []
+        
+        for i, stats in enumerate(self.mask_statistics):
+            # Only include active masks (not filtered out)
+            mask_state = self.mask_states[i] if i < len(self.mask_states) else 'active'
+            if mask_state != 'active':
+                continue
+            
+            diameter = stats.get('diameter', 0)
+            mean_intensity = stats.get('mean_intensity', 0)
+            
+            if mean_intensity >= intensity_threshold:
+                high_intensity_diameters.append(diameter)
+            else:
+                low_intensity_diameters.append(diameter)
+        
+        return {
+            'high_intensity': high_intensity_diameters,
+            'low_intensity': low_intensity_diameters
+        }

@@ -5,7 +5,11 @@ Web interface for SAM-based image segmentation with interactive mask removal
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
-from flask.json.provider import DefaultJSONProvider
+try:
+    from flask.json.provider import DefaultJSONProvider
+except ImportError:
+    # For older Flask versions
+    from flask.json import JSONEncoder as DefaultJSONProvider
 import cv2
 import numpy as np
 import os
@@ -63,7 +67,11 @@ class NumpyJSONProvider(DefaultJSONProvider):
         return super().default(obj)
 
 app = Flask(__name__, template_folder='../../templates')
-app.json = NumpyJSONProvider(app)
+try:
+    app.json = NumpyJSONProvider(app)
+except TypeError:
+    # For older Flask versions, use JSONEncoder
+    app.json_encoder = NumpyJSONProvider
 
 # Global variables for SAM models
 sam_analyzers = {}
@@ -532,6 +540,58 @@ def export_diameter_data():
         })
     
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/export_mask_csv', methods=['POST'])
+def export_mask_csv():
+    """Export mask information as CSV with center location, diameter, and pixel intensity"""
+    try:
+        sam_analyzer = get_sam_analyzer()
+        
+        if sam_analyzer is None:
+            return jsonify({'success': False, 'error': 'SAM analyzer not available'})
+        
+        if not sam_analyzer.mask_statistics:
+            return jsonify({'success': False, 'error': 'No mask data available. Please run segmentation first.'})
+        
+        # Create CSV content
+        csv_lines = []
+        csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity,State")
+        
+        for i, stats in enumerate(sam_analyzer.mask_statistics):
+            # Get mask state
+            mask_state = sam_analyzer.mask_states[i] if i < len(sam_analyzer.mask_states) else 'active'
+            
+            # Extract the required data
+            mask_id = stats.get('mask_id', i)
+            center_x = stats.get('center_x', 0)
+            center_y = stats.get('center_y', 0)
+            diameter = stats.get('diameter', 0)
+            mean_intensity = stats.get('mean_intensity', 0)
+            area = stats.get('area', 0)
+            circularity = stats.get('circularity', 0)
+            
+            # Add row to CSV
+            csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f},{mask_state}")
+        
+        # Join all lines
+        csv_content = "\n".join(csv_lines)
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f'mask_data_export_{timestamp}.csv'
+        
+        return jsonify({
+            'success': True,
+            'data': csv_content,
+            'filename': filename,
+            'total_masks': len(sam_analyzer.mask_statistics)
+        })
+    
+    except Exception as e:
+        print(f"❌ Error in CSV export: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':

@@ -839,6 +839,105 @@
                         <button class="btn" id="downloadBtn" onclick="downloadResult()" style="display: none; font-size: 0.8em; padding: 8px 16px;">
                             <i class="fas fa-download"></i> Download Result
                         </button>
+                        <button class="btn" id="exportCsvBtn" onclick="exportMaskCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white;">
+                            <i class="fas fa-file-csv"></i> Export CSV Data
+                        </button>
+                    </div>
+                    
+                    <!-- Unit Conversion Panel -->
+                    <div class="control-group" id="unitConversionPanel" style="display: none; margin-top: 20px;">
+                        <h3><i class="fas fa-ruler"></i> Unit Conversion</h3>
+                        <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                            Set pixel-to-unit conversion to display measurements in real units (e.g., μm).
+                        </p>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Pixel Distance:</label>
+                            <input type="number" id="pixelDistance" placeholder="e.g., 100" min="1" step="0.1" 
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9em;">
+                            <small style="color: #666;">Distance in pixels (measure a known distance in your image)</small>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Real Distance:</label>
+                            <input type="number" id="realDistance" placeholder="e.g., 50" min="0.001" step="0.001" 
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9em;">
+                            <small style="color: #666;">Corresponding real-world distance</small>
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500;">Unit Name:</label>
+                            <input type="text" id="unitName" value="μm" placeholder="e.g., μm, mm, nm" 
+                                   style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9em;">
+                            <small style="color: #666;">Name of the unit (default: μm)</small>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                            <button class="btn" onclick="setPixelConversion()" 
+                                    style="flex: 1; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; font-size: 0.9em;">
+                                <i class="fas fa-check"></i> Set Conversion
+                            </button>
+                            <button class="btn" onclick="resetPixelConversion()" 
+                                    style="flex: 1; background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%); color: white; font-size: 0.9em;">
+                                <i class="fas fa-undo"></i> Reset
+                            </button>
+                        </div>
+                        
+                        <div id="conversionStatus" style="padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 0.9em; display: none;">
+                            <strong>Current Conversion:</strong> <span id="conversionInfo">Not set</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Intensity Filter Panel -->
+                    <div class="control-group" id="intensityFilterPanel" style="display: none; margin-top: 20px;">
+                        <h3><i class="fas fa-filter"></i> Intensity Filter</h3>
+                        <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                            Filter masks based on their mean pixel intensity values. Masks outside the range will be completely removed from display.
+                        </p>
+                        
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label for="minIntensity" style="display: block; font-weight: 600; margin-bottom: 5px;">
+                                        Min Intensity:
+                                    </label>
+                                    <input type="number" id="minIntensity" min="0" max="255" value="0" 
+                                           style="width: 100%; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px;">
+                                    <small style="color: #666;">Minimum intensity threshold (0-255)</small>
+                                </div>
+                                <div>
+                                    <label for="maxIntensity" style="display: block; font-weight: 600; margin-bottom: 5px;">
+                                        Max Intensity:
+                                    </label>
+                                    <input type="number" id="maxIntensity" min="0" max="255" value="255" 
+                                           style="width: 100%; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px;">
+                                    <small style="color: #666;">Maximum intensity threshold (0-255)</small>
+                                </div>
+                            </div>
+                            
+                            <div id="intensityStats" style="background: white; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.9em;">
+                                <strong>Intensity Statistics:</strong> <span id="intensityStatsText">Click "Get Statistics" to view</span>
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button class="btn" onclick="getIntensityStatistics()" style="font-size: 0.9em; padding: 8px 16px; background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%); color: white;">
+                                    <i class="fas fa-chart-bar"></i> Get Statistics
+                                </button>
+                                <button class="btn" onclick="applyIntensityFilter()" style="font-size: 0.9em; padding: 8px 16px; background: linear-gradient(135deg, #fd7e14 0%, #e55a4e 100%); color: white;">
+                                    <i class="fas fa-filter"></i> Apply Filter
+                                </button>
+                                <button class="btn" onclick="resetIntensityFilter()" style="font-size: 0.9em; padding: 8px 16px; background: linear-gradient(135deg, #6c757d 0%, #495057 100%); color: white;">
+                                    <i class="fas fa-undo"></i> Reset Filter
+                                </button>
+                                <button class="btn" id="exportFilteredCsvBtn" onclick="exportMaskCSV()" style="display: none; font-size: 0.9em; padding: 8px 16px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white;">
+                                    <i class="fas fa-file-csv"></i> Export Filtered CSV
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="filterResults" style="display: none; background: #e8f5e8; padding: 10px; border-radius: 6px; margin-top: 10px;">
+                            <strong>Filter Results:</strong> <span id="filterResultsText"></span>
+                        </div>
                     </div>
                     
                     <!-- Next Stage Button -->
@@ -1412,8 +1511,18 @@
             
             document.getElementById('parametersSummary').innerHTML = paramSummary;
             
-            // Show download button
+            // Show download and CSV export buttons
             document.getElementById('downloadBtn').style.display = 'inline-block';
+            document.getElementById('exportCsvBtn').style.display = 'inline-block';
+            
+            // Show intensity filter panel
+            document.getElementById('intensityFilterPanel').style.display = 'block';
+            
+            // Show unit conversion panel
+            document.getElementById('unitConversionPanel').style.display = 'block';
+            
+            // Load existing conversion info if any
+            loadConversionInfo();
         }
 
         // Mouse move handler for hover preview
@@ -1495,6 +1604,10 @@
                         <span class="detail-value">${maskInfo.area.toFixed(0)} px²</span>
                     </div>
                     <div class="detail-row">
+                        <span class="detail-label">Mean Intensity:</span>
+                        <span class="detail-value">${maskInfo.mean_intensity ? maskInfo.mean_intensity.toFixed(1) : 'N/A'}</span>
+                    </div>
+                    <div class="detail-row">
                         <span class="detail-label">Circularity:</span>
                         <span class="detail-value">${(maskInfo.circularity * 100).toFixed(1)}%</span>
                     </div>
@@ -1565,6 +1678,10 @@
                     <div class="detail-row">
                         <span class="detail-label">Area:</span>
                         <span class="detail-value">${mask.area.toFixed(0)} px²</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Mean Intensity:</span>
+                        <span class="detail-value">${mask.mean_intensity ? mask.mean_intensity.toFixed(1) : 'N/A'}</span>
                     </div>
                     <div class="detail-row">
                         <span class="detail-label">Circularity:</span>
@@ -1924,6 +2041,7 @@
                 this.diameter = data.diameter || 0;
                 this.circularity = data.circularity || 0;
                 this.aspectRatio = data.aspect_ratio || 0;
+                this.mean_intensity = data.mean_intensity || 0; // Add mean intensity
                 this.state = data.state || 'active'; // 'active' or 'removed'
                 this.qualityScore = data.quality_score || 0;
                 this.color = this.state === 'active' ? '#ff0000' : '#666666';
@@ -2090,7 +2208,7 @@
                         <strong>Summary:</strong> 
                         ${data.summary.active_masks || 0} active, 
                         ${data.summary.removed_masks || 0} removed | 
-                        Avg Diameter: ${data.summary.average_diameter?.toFixed(1) || 'N/A'} px | 
+                        Avg Diameter: ${formatMeasurement(data.summary.average_diameter, data.summary.conversion_info)} | 
                         Avg Circularity: ${((data.summary.average_circularity || 0) * 100).toFixed(1)}%
                     </div>
                 `;
@@ -2115,8 +2233,9 @@
                             </div>
                             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.9em;">
                                 <span><strong>Center:</strong> (${mask.center_x.toFixed(1)}, ${mask.center_y.toFixed(1)})</span>
-                                <span><strong>Diameter:</strong> ${mask.diameter.toFixed(1)} px</span>
-                                <span><strong>Area:</strong> ${mask.area.toFixed(0)} px²</span>
+                                <span><strong>Diameter:</strong> ${formatMeasurement(mask.diameter, mask, 'diameter')}</span>
+                                <span><strong>Area:</strong> ${formatMeasurement(mask.area, mask, 'area')}</span>
+                                <span><strong>Mean Intensity:</strong> ${mask.mean_intensity ? mask.mean_intensity.toFixed(1) : 'N/A'}</span>
                                 <span><strong>Circularity:</strong> ${(mask.circularity * 100).toFixed(1)}%</span>
                             </div>
                         </div>
@@ -2294,6 +2413,392 @@
                 showSuccess('Result image downloaded successfully!');
             } else {
                 showError('No segmentation result available to download');
+            }
+        }
+
+        async function exportMaskCSV() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            try {
+                // Show loading state
+                const exportBtn = document.getElementById('exportCsvBtn');
+                const originalText = exportBtn.innerHTML;
+                exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+                exportBtn.disabled = true;
+
+                // Make API request to CSV export endpoint
+                const response = await fetch('/export_mask_csv', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Create and download CSV file
+                    const blob = new Blob([result.data], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = result.filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+                    
+                    if (result.exported_masks < result.total_masks) {
+                        showSuccess(`CSV exported successfully! ${result.exported_masks} active masks exported (${result.total_masks - result.exported_masks} filtered out).`);
+                    } else {
+                        showSuccess(`CSV exported successfully! ${result.exported_masks} masks exported.`);
+                    }
+                } else {
+                    showError(result.error || 'CSV export failed');
+                }
+
+            } catch (error) {
+                console.error('Error exporting CSV:', error);
+                showError('Network error: ' + error.message);
+            } finally {
+                // Restore button state
+                const exportBtn = document.getElementById('exportCsvBtn');
+                exportBtn.innerHTML = '<i class="fas fa-file-csv"></i> Export CSV Data';
+                exportBtn.disabled = false;
+            }
+        }
+
+        // Intensity Filter Functions
+        async function getIntensityStatistics() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/get_intensity_statistics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const stats = result.statistics;
+                    const statsText = `Min: ${stats.min_intensity.toFixed(1)}, Max: ${stats.max_intensity.toFixed(1)}, Mean: ${stats.mean_intensity.toFixed(1)}, Std: ${stats.std_intensity.toFixed(1)} (${stats.total_masks} masks)`;
+                    document.getElementById('intensityStatsText').textContent = statsText;
+                    
+                    // Update input fields with reasonable defaults
+                    document.getElementById('minIntensity').value = Math.max(0, Math.floor(stats.min_intensity));
+                    document.getElementById('maxIntensity').value = Math.min(255, Math.ceil(stats.max_intensity));
+                    
+                    showSuccess('Intensity statistics loaded successfully!');
+                } else {
+                    showError(result.error || 'Failed to get intensity statistics');
+                }
+
+            } catch (error) {
+                console.error('Error getting intensity statistics:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function applyIntensityFilter() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            const minIntensity = parseFloat(document.getElementById('minIntensity').value);
+            const maxIntensity = parseFloat(document.getElementById('maxIntensity').value);
+
+            if (minIntensity > maxIntensity) {
+                showError('Minimum intensity cannot be greater than maximum intensity.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/apply_intensity_filter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        min_intensity: minIntensity,
+                        max_intensity: maxIntensity
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update masks array to reflect filtering - remove filtered masks from frontend
+                    await refreshMaskDisplay();
+                    
+                    // Note: We don't call displayImage() here because it would overwrite the original image
+                    // The backend overlay is just for visual reference, frontend handles interaction
+                    
+                    // Show filter results
+                    const filterResults = document.getElementById('filterResults');
+                    const filterResultsText = document.getElementById('filterResultsText');
+                    filterResultsText.textContent = `Kept ${result.filter_results.kept_count} masks, filtered out ${result.filter_results.filtered_count} masks (Range: ${minIntensity}-${maxIntensity})`;
+                    filterResults.style.display = 'block';
+                    
+                    // Show export filtered CSV button
+                    document.getElementById('exportFilteredCsvBtn').style.display = 'inline-block';
+                    
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error || 'Failed to apply intensity filter');
+                }
+
+            } catch (error) {
+                console.error('Error applying intensity filter:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function resetIntensityFilter() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/reset_intensity_filter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update masks array to reflect reset - restore all masks
+                    await refreshMaskDisplay();
+                    
+                    // Note: We don't call displayImage() here to preserve original image coordinates
+                    
+                    // Hide filter results
+                    document.getElementById('filterResults').style.display = 'none';
+                    
+                    // Hide export filtered CSV button
+                    document.getElementById('exportFilteredCsvBtn').style.display = 'none';
+                    
+                    // Reset input fields
+                    document.getElementById('minIntensity').value = 0;
+                    document.getElementById('maxIntensity').value = 255;
+                    
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error || 'Failed to reset intensity filter');
+                }
+
+            } catch (error) {
+                console.error('Error resetting intensity filter:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        // Helper function to format measurements with appropriate units
+        function formatMeasurement(value, maskOrConversionInfo, measurementType = 'linear') {
+            if (!value && value !== 0) return 'N/A';
+            
+            // Check if conversion info is available
+            let conversionInfo = null;
+            if (maskOrConversionInfo) {
+                if (maskOrConversionInfo.conversion_enabled && maskOrConversionInfo.unit_name) {
+                    // This is a mask object with conversion info
+                    conversionInfo = maskOrConversionInfo;
+                } else if (maskOrConversionInfo.enabled) {
+                    // This is a conversion info object
+                    conversionInfo = maskOrConversionInfo;
+                }
+            }
+            
+            if (conversionInfo && conversionInfo.conversion_enabled) {
+                // Use converted values if available
+                if (measurementType === 'diameter' && maskOrConversionInfo.diameter_units !== undefined) {
+                    return `${maskOrConversionInfo.diameter_units.toFixed(2)} ${conversionInfo.unit_name}`;
+                } else if (measurementType === 'area' && maskOrConversionInfo.area_units !== undefined) {
+                    return `${maskOrConversionInfo.area_units.toFixed(2)} ${conversionInfo.unit_name}²`;
+                } else if (measurementType === 'linear' && conversionInfo.unit_name) {
+                    // For summary statistics, we need to convert manually
+                    const convertedValue = value / (conversionInfo.pixels_per_unit || 1);
+                    return `${convertedValue.toFixed(2)} ${conversionInfo.unit_name}`;
+                }
+            }
+            
+            // Fallback to pixel values
+            if (measurementType === 'area') {
+                return `${value.toFixed(0)} px²`;
+            } else {
+                return `${value.toFixed(1)} px`;
+            }
+        }
+
+        // Unit Conversion Functions
+        async function setPixelConversion() {
+            const pixelDistance = parseFloat(document.getElementById('pixelDistance').value);
+            const realDistance = parseFloat(document.getElementById('realDistance').value);
+            const unitName = document.getElementById('unitName').value.trim();
+
+            if (!pixelDistance || pixelDistance <= 0) {
+                showError('Please enter a valid pixel distance (greater than 0)');
+                return;
+            }
+
+            if (!realDistance || realDistance <= 0) {
+                showError('Please enter a valid real distance (greater than 0)');
+                return;
+            }
+
+            if (!unitName) {
+                showError('Please enter a unit name (e.g., μm, mm, nm)');
+                return;
+            }
+
+            try {
+                const response = await fetch('/set_pixel_conversion', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        pixel_distance: pixelDistance,
+                        unit_distance: realDistance,
+                        unit_name: unitName
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update conversion status display
+                    document.getElementById('conversionStatus').style.display = 'block';
+                    document.getElementById('conversionInfo').textContent = result.conversion_info.conversion_ratio;
+                    
+                    showSuccess(result.message);
+                    
+                    // Refresh mask display if masks are available
+                    if (segmentationResults && segmentationResults.masks) {
+                        await refreshMaskDisplay();
+                    }
+                } else {
+                    showError(result.error || 'Failed to set pixel conversion');
+                }
+
+            } catch (error) {
+                console.error('Error setting pixel conversion:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function resetPixelConversion() {
+            try {
+                const response = await fetch('/reset_conversion', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Hide conversion status display
+                    document.getElementById('conversionStatus').style.display = 'none';
+                    document.getElementById('conversionInfo').textContent = 'Not set';
+                    
+                    // Clear input fields
+                    document.getElementById('pixelDistance').value = '';
+                    document.getElementById('realDistance').value = '';
+                    document.getElementById('unitName').value = 'μm';
+                    
+                    showSuccess(result.message);
+                    
+                    // Refresh mask display if masks are available
+                    if (segmentationResults && segmentationResults.masks) {
+                        await refreshMaskDisplay();
+                    }
+                } else {
+                    showError(result.error || 'Failed to reset pixel conversion');
+                }
+
+            } catch (error) {
+                console.error('Error resetting pixel conversion:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function refreshMaskDisplay() {
+            // Refresh the mask overlay and any displayed statistics
+            try {
+                const response = await fetch('/get_all_masks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update masks data with new unit information
+                    // Filter out intensity_filtered masks from frontend display
+                    const allMasks = result.masks || [];
+                    const filteredMasks = allMasks.filter(mask => mask.state !== 'intensity_filtered');
+                    
+                    // Convert to Mask objects to ensure proper functionality
+                    masks = filteredMasks.map(maskData => new Mask(maskData));
+                    
+                    // Redraw masks on canvas to reflect any changes
+                    drawMasks();
+                    
+                    // Update any displayed statistics or summaries
+                    if (result.summary && result.summary.conversion_info) {
+                        console.log('Conversion updated:', result.summary.conversion_info);
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error refreshing mask display:', error);
+            }
+        }
+
+        // Load conversion info on page load
+        async function loadConversionInfo() {
+            try {
+                const response = await fetch('/get_conversion_info', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+
+                const result = await response.json();
+
+                if (result.success && result.conversion_info.enabled) {
+                    // Update UI with existing conversion settings
+                    document.getElementById('pixelDistance').value = result.conversion_info.pixel_distance;
+                    document.getElementById('realDistance').value = result.conversion_info.unit_distance;
+                    document.getElementById('unitName').value = result.conversion_info.unit_name;
+                    
+                    document.getElementById('conversionStatus').style.display = 'block';
+                    document.getElementById('conversionInfo').textContent = result.conversion_info.conversion_ratio;
+                }
+
+            } catch (error) {
+                console.error('Error loading conversion info:', error);
             }
         }
     </script>

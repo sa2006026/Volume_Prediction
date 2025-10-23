@@ -500,6 +500,9 @@
                     <button class="btn btn-success" id="downloadBtn" onclick="downloadResult()" style="display: none;">
                         <i class="fas fa-download"></i> Download Result
                     </button>
+                    <button class="btn" id="exportCsvBtn" onclick="exportMaskCSV()" style="display: none; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);">
+                        <i class="fas fa-file-csv"></i> Export CSV Data
+                    </button>
                 </div>
             </div>
         </div>
@@ -672,6 +675,7 @@
             // Show control buttons
             document.getElementById('resetBtn').style.display = 'inline-block';
             document.getElementById('downloadBtn').style.display = 'inline-block';
+            document.getElementById('exportCsvBtn').style.display = 'inline-block';
         }
 
         function setupInteractiveImage(result) {
@@ -889,6 +893,58 @@
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+            }
+        }
+
+        async function exportMaskCSV() {
+            if (!segmentationResult) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            try {
+                // Show loading state
+                const exportBtn = document.getElementById('exportCsvBtn');
+                const originalText = exportBtn.innerHTML;
+                exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+                exportBtn.disabled = true;
+
+                // Make API request to CSV export endpoint
+                const response = await fetch('/export_mask_csv', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Create and download CSV file
+                    const blob = new Blob([result.data], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = result.filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+                    
+                    showSuccess(`CSV exported successfully! ${result.total_masks} masks exported.`);
+                } else {
+                    showError(result.error || 'CSV export failed');
+                }
+
+            } catch (error) {
+                console.error('Error exporting CSV:', error);
+                showError('Network error: ' + error.message);
+            } finally {
+                // Restore button state
+                const exportBtn = document.getElementById('exportCsvBtn');
+                exportBtn.innerHTML = '<i class="fas fa-file-csv"></i> Export CSV Data';
+                exportBtn.disabled = false;
             }
         }
 
