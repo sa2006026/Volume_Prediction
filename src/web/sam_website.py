@@ -314,7 +314,7 @@ class SAMWebEngine:
     def toggle_mask_at_point(self, x: int, y: int):
         """Toggle mask state at specific coordinates"""
         if self.sam_analyzer is None:
-            return None
+            return None, None
         
         # Check if mask interactions are allowed in current stage
         if not self.is_mask_interaction_allowed():
@@ -740,15 +740,22 @@ def run_sam_segmentation():
             })
         
         # Convert overlay to base64
-        overlay_base64 = engine.get_image_as_base64(overlay_image)
+        # To avoid double-drawing boxes in the frontend, return the base image (no boxes)
+        overlay_base64 = engine.get_image_as_base64()
+        
+        # Filter masks by state for response so only masks that passed all filters are returned
+        filtered_mask_stats = [s for s in mask_stats if s.get('state', 'active') not in ['intensity_filtered', 'overlap_filtered']]
+        visible_masks_count = len(filtered_mask_stats)
+        total_masks_count = len(mask_stats)
         
         return jsonify({
             'success': True,
             'masks_found': True,
             'overlay_image': overlay_base64,
-            'masks_count': len(mask_stats),
+            'masks_count': visible_masks_count,
+            'total_masks': total_masks_count,
             'summary': summary,
-            'masks': mask_stats,
+            'masks': filtered_mask_stats,
             'parameters': {
                 'model_size': model_size,
                 'crop_layers': crop_layers,
@@ -757,7 +764,7 @@ def run_sam_segmentation():
                 'performance_mode': performance_mode,
                 'use_gpu': use_gpu
             },
-            'message': f'SAM segmentation completed! Found {len(mask_stats)} masks using {backend} backend.'
+            'message': f'SAM segmentation completed! Showing {visible_masks_count} masks (of {total_masks_count}) using {backend} backend.'
         })
         
     except Exception as e:
