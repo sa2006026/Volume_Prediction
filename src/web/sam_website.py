@@ -106,6 +106,33 @@ class SAMWebEngine:
         """Check if there are stored masks available"""
         return len(self.stored_masks) > 0
     
+    def is_intensity_filter_active(self) -> bool:
+        """Check if intensity filtering is currently active"""
+        if self.sam_analyzer is None or not self.sam_analyzer.mask_states:
+            return False
+        
+        # Check if any masks are in 'intensity_filtered' state
+        return any(state == 'intensity_filtered' for state in self.sam_analyzer.mask_states)
+    
+    def create_clean_filtered_overlay(self):
+        """
+        Create a clean overlay using the clear-and-rebuild approach:
+        1. Clear all existing bounding boxes from preview
+        2. Add back only the masks that meet the intensity filter criteria
+        
+        Returns:
+            Clean overlay image with only qualifying masks and bounding boxes
+        """
+        if self.sam_analyzer is None:
+            return None
+        
+        # Always use the filtered overlay method for consistency
+        # It will handle both filtered and non-filtered states correctly
+        return self.sam_analyzer.create_filtered_mask_overlay(
+            show_labels=False,
+            alpha=0.3
+        )
+    
     def _initialize_advanced_sam_config(self):
         """Initialize advanced SAM configuration with ONNX/TensorRT support"""
         try:
@@ -243,11 +270,8 @@ class SAMWebEngine:
         if not mask_stats:
             return None, None, []
         
-        # Create overlay visualization
-        overlay_image = self.sam_analyzer.create_mask_overlay(
-            show_labels=False,
-            alpha=0.3
-        )
+        # Create overlay visualization using clean approach
+        overlay_image = self.create_clean_filtered_overlay()
         
         # Get summary statistics
         summary = self.sam_analyzer.get_segmentation_summary()
@@ -259,7 +283,17 @@ class SAMWebEngine:
         if self.sam_analyzer is None:
             return None
         
-        return self.sam_analyzer.get_mask_at_point(x, y)
+        mask_info = self.sam_analyzer.get_mask_at_point(x, y)
+        
+        # If intensity filter is active, only return info for non-filtered masks
+        if mask_info and self.is_intensity_filter_active():
+            mask_id = mask_info.get('mask_id', -1)
+            if mask_id >= 0 and mask_id < len(self.sam_analyzer.mask_states):
+                mask_state = self.sam_analyzer.mask_states[mask_id]
+                if mask_state == 'intensity_filtered':
+                    return None  # Don't return info for intensity filtered masks
+        
+        return mask_info
     
     def toggle_mask_at_point(self, x: int, y: int):
         """Toggle mask state at specific coordinates"""
@@ -273,11 +307,8 @@ class SAMWebEngine:
         toggle_result = self.sam_analyzer.toggle_mask_state(x, y)
         
         if toggle_result:
-            # Create updated visualization
-            overlay_image = self.sam_analyzer.create_mask_overlay(
-                show_labels=False,
-                alpha=0.3
-            )
+            # Create updated visualization using clean clear-and-rebuild approach
+            overlay_image = self.create_clean_filtered_overlay()
             return toggle_result, overlay_image
         
         return None, None
@@ -315,11 +346,8 @@ class SAMWebEngine:
         # Reset all mask states
         self.sam_analyzer.mask_states = ['active'] * len(self.sam_analyzer.masks)
         
-        # Create updated visualization
-        overlay_image = self.sam_analyzer.create_mask_overlay(
-            show_labels=False,
-            alpha=0.3
-        )
+        # Create updated visualization using clean approach
+        overlay_image = self.create_clean_filtered_overlay()
         
         return overlay_image
     
@@ -350,6 +378,13 @@ class SAMWebEngine:
         # Find which mask contains this point
         for i, mask in enumerate(self.sam_analyzer.masks):
             if y < mask.shape[0] and x < mask.shape[1] and mask[y, x] > 0:
+                # Check if intensity filter is active and skip filtered masks
+                if self.is_intensity_filter_active():
+                    mask_state = (self.sam_analyzer.mask_states[i] 
+                                if i < len(self.sam_analyzer.mask_states) else 'active')
+                    if mask_state == 'intensity_filtered':
+                        continue  # Skip intensity filtered masks
+                
                 # Create a focused preview showing only this specific blob
                 preview_image = self._create_blob_focused_preview(i, x, y, preview_size=(200, 200))
                 
@@ -1015,11 +1050,8 @@ def apply_intensity_filter():
         if not filter_results['success']:
             return jsonify(filter_results)
         
-        # Create updated overlay with filtered masks
-        overlay_image = engine.sam_analyzer.create_mask_overlay(
-            show_labels=False,
-            alpha=0.3
-        )
+        # Create updated overlay using clean clear-and-rebuild approach
+        overlay_image = engine.create_clean_filtered_overlay()
         
         overlay_base64 = engine.get_image_as_base64(overlay_image)
         
@@ -1045,7 +1077,7 @@ def reset_intensity_filter():
         # Reset intensity filter
         engine.sam_analyzer.reset_intensity_filter()
         
-        # Create updated overlay
+        # Create updated overlay showing all masks (since filter is reset)
         overlay_image = engine.sam_analyzer.create_mask_overlay(
             show_labels=False,
             alpha=0.3
