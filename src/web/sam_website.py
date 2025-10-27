@@ -264,7 +264,7 @@ class SAMWebEngine:
         
         return True
     
-    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.4):
+    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.97):
         """Perform SAM segmentation with current parameters and optional overlap filtering"""
         if self.sam_analyzer is None:
             raise ValueError("No image loaded")
@@ -665,6 +665,10 @@ def upload_image():
                 'width': int(engine.current_image.shape[1]),
                 'height': int(engine.current_image.shape[0])
             },
+            'masks': [],  # Empty mask list - frontend should clear all bounding boxes
+            'masks_count': 0,
+            'clear_and_redraw': True,  # Explicit flag for frontend to clear drawings
+            'clear_preview': True,     # Explicitly clear preview overlay as well
             'message': 'Image uploaded successfully! Configure SAM parameters and run segmentation.'
         })
         
@@ -713,7 +717,7 @@ def run_sam_segmentation():
         performance_mode = data.get('performance_mode', False)
         use_gpu = data.get('use_gpu', True)
         apply_overlap_filter = data.get('apply_overlap_filter', True)
-        overlap_threshold = data.get('overlap_threshold', 0.4)
+        overlap_threshold = data.get('overlap_threshold', 0.9)
         
         if engine.current_image is None:
             return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
@@ -1081,12 +1085,51 @@ def apply_intensity_filter():
         # Return base image only to avoid double-drawing; frontend will draw latest boxes
         base_image_b64 = engine.get_image_as_base64()
         
+        # Get filtered mask list (only active masks that passed the filter)
+        filtered_masks = []
+        total_masks = len(engine.sam_analyzer.mask_statistics)
+        
+        for i, (mask_stats, mask_state) in enumerate(zip(
+            engine.sam_analyzer.mask_statistics, 
+            engine.sam_analyzer.mask_states
+        )):
+            # Only include masks that are active (not filtered out)
+            if mask_state == 'active':
+                mask_info = mask_stats.copy()
+                mask_info['state'] = mask_state
+                filtered_masks.append(mask_info)
+        
+        # Add unit conversion information if enabled
+        if engine.sam_analyzer and engine.sam_analyzer.conversion_enabled:
+            converted_masks = []
+            for mask in filtered_masks:
+                mask_id = mask.get('mask_id', -1)
+                if mask_id >= 0:
+                    converted_stats = engine.sam_analyzer.get_mask_statistics_with_units(mask_id)
+                    if converted_stats:
+                        mask.update(converted_stats)
+                converted_masks.append(mask)
+            filtered_masks = converted_masks
+        
+        # Log for debugging
+        print(f"🔍 Intensity filter applied: {min_intensity}-{max_intensity}")
+        print(f"📊 Total masks: {total_masks}, Active: {len(filtered_masks)}, Filtered: {total_masks - len(filtered_masks)}")
+        print(f"📦 Returning {len(filtered_masks)} masks to frontend")
+        if filtered_masks:
+            print(f"📦 First mask has bounding_box: {'bounding_box' in filtered_masks[0]}")
+        print(f"📦 Unit conversion enabled: {engine.sam_analyzer.conversion_enabled if engine.sam_analyzer else False}")
+        
         return jsonify({
             'success': True,
             'image': base_image_b64,
             'filter_results': filter_results,
+            'masks': filtered_masks,  # Add filtered mask list for frontend to draw bounding boxes
+            'masks_count': len(filtered_masks),
+            'total_masks': total_masks,  # Add total count for comparison
+            'filtered_count': total_masks - len(filtered_masks),
             'min_intensity': min_intensity,
             'max_intensity': max_intensity,
+            'clear_and_redraw': True,  # Flag to tell frontend to clear all boxes first
             'message': f'Intensity filter applied! Kept: {filter_results["kept_count"]}, Filtered: {filter_results["filtered_count"]}'
         })
         
@@ -1106,9 +1149,39 @@ def reset_intensity_filter():
         # Return base image only; frontend redraws according to current states
         base_image_b64 = engine.get_image_as_base64()
         
+        # Get all masks after reset (all should be active now)
+        all_masks = []
+        for i, (mask_stats, mask_state) in enumerate(zip(
+            engine.sam_analyzer.mask_statistics, 
+            engine.sam_analyzer.mask_states
+        )):
+            mask_info = mask_stats.copy()
+            mask_info['state'] = mask_state
+            all_masks.append(mask_info)
+        
+        # Add unit conversion information if enabled
+        if engine.sam_analyzer and engine.sam_analyzer.conversion_enabled:
+            converted_masks = []
+            for mask in all_masks:
+                mask_id = mask.get('mask_id', -1)
+                if mask_id >= 0:
+                    converted_stats = engine.sam_analyzer.get_mask_statistics_with_units(mask_id)
+                    if converted_stats:
+                        mask.update(converted_stats)
+                converted_masks.append(mask)
+            all_masks = converted_masks
+        
+        # Log for debugging
+        print(f"🔄 Intensity filter reset")
+        print(f"📦 Returning {len(all_masks)} masks to frontend")
+        print(f"📦 Unit conversion enabled: {engine.sam_analyzer.conversion_enabled if engine.sam_analyzer else False}")
+        
         return jsonify({
             'success': True,
             'image': base_image_b64,
+            'masks': all_masks,  # Return all masks for frontend to redraw all bounding boxes
+            'masks_count': len(all_masks),
+            'clear_and_redraw': True,  # Flag to tell frontend to clear all boxes first
             'message': 'Intensity filter reset - all masks are unfiltered'
         })
         
@@ -1132,12 +1205,56 @@ def get_intensity_statistics():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/debug_mask_states', methods=['GET'])
+def debug_mask_states():
+    """Debug endpoint to show current mask states (for troubleshooting)"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({
+                'success': False,
+                'error': 'No masks available',
+                'total_masks': 0
+            })
+        
+        # Get state breakdown
+        state_counts = {}
+        mask_details = []
+        
+        for i, (mask_stats, mask_state) in enumerate(zip(
+            engine.sam_analyzer.mask_statistics,
+            engine.sam_analyzer.mask_states
+        )):
+            # Count states
+            state_counts[mask_state] = state_counts.get(mask_state, 0) + 1
+            
+            # Add to details
+            mask_details.append({
+                'mask_id': i,
+                'state': mask_state,
+                'mean_intensity': mask_stats.get('mean_intensity', 0),
+                'bounding_box': mask_stats.get('bounding_box', [0, 0, 0, 0])
+            })
+        
+        return jsonify({
+            'success': True,
+            'total_masks': len(engine.sam_analyzer.masks),
+            'state_counts': state_counts,
+            'active_count': state_counts.get('active', 0),
+            'intensity_filtered_count': state_counts.get('intensity_filtered', 0),
+            'overlap_filtered_count': state_counts.get('overlap_filtered', 0),
+            'removed_count': state_counts.get('removed', 0),
+            'mask_details': mask_details[:10]  # First 10 masks for debugging
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/apply_overlap_filter', methods=['POST'])
 def apply_overlap_filter():
     """Apply overlap filter to remove duplicate masks"""
     try:
         data = request.get_json()
-        overlap_threshold = data.get('overlap_threshold', 0.4)
+        overlap_threshold = data.get('overlap_threshold', 0.9)
         
         if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
             return jsonify({'success': False, 'error': 'No masks available for filtering'})
@@ -1280,9 +1397,30 @@ def set_pixel_conversion():
         
         if success:
             conversion_info = engine.sam_analyzer.get_conversion_info()
+
+            # Build currently visible masks (active only), with unit conversion applied
+            visible_masks = []
+            if engine.sam_analyzer.mask_statistics and engine.sam_analyzer.mask_states:
+                for i, (stats, state) in enumerate(zip(
+                    engine.sam_analyzer.mask_statistics,
+                    engine.sam_analyzer.mask_states
+                )):
+                    if state == 'active':
+                        mask_info = stats.copy()
+                        mask_info['state'] = state
+                        # Apply unit conversion details to this mask
+                        converted_stats = engine.sam_analyzer.get_mask_statistics_with_units(i)
+                        if converted_stats:
+                            mask_info.update(converted_stats)
+                        visible_masks.append(mask_info)
+            
             return jsonify({
                 'success': True,
                 'conversion_info': conversion_info,
+                'masks': visible_masks,                 # Return only active masks for redraw
+                'masks_count': len(visible_masks),
+                'clear_and_redraw': True,               # Frontend should clear boxes and redraw
+                'clear_preview': True,                   # Clear preview overlay too
                 'message': f'Conversion set: {pixel_distance} pixels = {unit_distance} {unit_name}'
             })
         else:
