@@ -145,6 +145,87 @@ class SAMWebEngine:
             alpha=0.3
         )
     
+    def apply_mask_overlap_filter(self, overlap_threshold: float = 0.8):
+        """Apply mask-based overlap filtering instead of bbox-based.
+
+        Logic: For any two active masks i, j, compute the intersection area of
+        the binary masks. If intersection / min(area_i, area_j) >= overlap_threshold,
+        mark the larger-area mask as 'overlap_filtered'.
+
+        Args:
+            overlap_threshold: Ratio in [0,1]. E.g., 0.8 => 80% of smaller mask overlapped
+
+        Returns:
+            Dict summary with kept_count and removed_count.
+        """
+        if self.sam_analyzer is None or not self.sam_analyzer.masks:
+            return {
+                'success': False,
+                'error': 'No masks available for filtering',
+                'kept_count': 0,
+                'removed_count': 0
+            }
+
+        masks = self.sam_analyzer.masks
+        # Ensure mask_states aligns with masks length
+        if not hasattr(self.sam_analyzer, 'mask_states') or not self.sam_analyzer.mask_states:
+            self.sam_analyzer.mask_states = ['active'] * len(masks)
+        else:
+            # Extend or trim to match
+            if len(self.sam_analyzer.mask_states) < len(masks):
+                self.sam_analyzer.mask_states += ['active'] * (len(masks) - len(self.sam_analyzer.mask_states))
+            elif len(self.sam_analyzer.mask_states) > len(masks):
+                self.sam_analyzer.mask_states = self.sam_analyzer.mask_states[:len(masks)]
+
+        states = self.sam_analyzer.mask_states
+
+        # Precompute areas for active masks
+        areas = []
+        bin_masks = []
+        for m in masks:
+            bm = (m > 0)
+            bin_masks.append(bm)
+            areas.append(int(np.count_nonzero(bm)))
+
+        to_remove = set()
+        n = len(bin_masks)
+        for i in range(n):
+            if states[i] != 'active' or i in to_remove or areas[i] == 0:
+                continue
+            mi = bin_masks[i]
+            ai = areas[i]
+            for j in range(i + 1, n):
+                if states[j] != 'active' or j in to_remove or areas[j] == 0:
+                    continue
+                mj = bin_masks[j]
+                aj = areas[j]
+                # Intersection count
+                inter = int(np.count_nonzero(mi & mj))
+                if inter == 0:
+                    continue
+                base = min(ai, aj)
+                if base == 0:
+                    continue
+                ratio = inter / float(base)
+                if ratio >= float(overlap_threshold):
+                    # Remove larger mask; if tie, remove j
+                    remove_idx = i if ai >= aj else j
+                    to_remove.add(remove_idx)
+
+        # Apply removals by updating states
+        removed_count = 0
+        for idx in to_remove:
+            if states[idx] == 'active':
+                states[idx] = 'overlap_filtered'
+                removed_count += 1
+
+        kept_count = len([s for s in states if s == 'active'])
+        return {
+            'success': True,
+            'kept_count': kept_count,
+            'removed_count': removed_count
+        }
+
     def _initialize_advanced_sam_config(self):
         """Initialize advanced SAM configuration with ONNX/TensorRT support"""
         try:
@@ -264,7 +345,7 @@ class SAMWebEngine:
         
         return True
     
-    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.97):
+    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.8):
         """Perform SAM segmentation with current parameters and optional overlap filtering"""
         if self.sam_analyzer is None:
             raise ValueError("No image loaded")
@@ -285,6 +366,10 @@ class SAMWebEngine:
         
         if not mask_stats:
             return None, None, []
+        
+        # Apply mask-based overlap filter (overrides any bbox-based logic inside analyzer)
+        if apply_overlap_filter:
+            self.apply_mask_overlap_filter(overlap_threshold)
         
         # Create overlay visualization using clean approach
         overlay_image = self.create_clean_filtered_overlay()
@@ -717,7 +802,7 @@ def run_sam_segmentation():
         performance_mode = data.get('performance_mode', False)
         use_gpu = data.get('use_gpu', True)
         apply_overlap_filter = data.get('apply_overlap_filter', True)
-        overlap_threshold = data.get('overlap_threshold', 0.9)
+        overlap_threshold = data.get('overlap_threshold', 0.8)
         
         if engine.current_image is None:
             return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
@@ -1254,13 +1339,13 @@ def apply_overlap_filter():
     """Apply overlap filter to remove duplicate masks"""
     try:
         data = request.get_json()
-        overlap_threshold = data.get('overlap_threshold', 0.9)
+        overlap_threshold = data.get('overlap_threshold', 0.8)
         
         if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
             return jsonify({'success': False, 'error': 'No masks available for filtering'})
         
-        # Apply overlap filter
-        filter_results = engine.sam_analyzer.apply_overlap_filter(
+        # Apply mask-based overlap filter (intersection over smaller mask area)
+        filter_results = engine.apply_mask_overlap_filter(
             overlap_threshold=float(overlap_threshold)
         )
         
@@ -1277,7 +1362,7 @@ def apply_overlap_filter():
             'image': overlay_base64,
             'filter_results': filter_results,
             'overlap_threshold': overlap_threshold,
-            'message': f'Overlap filter applied! Kept: {filter_results["kept_count"]}, Removed: {filter_results["removed_count"]} duplicate masks'
+            'message': f'Overlap filter applied (mask-based)! Kept: {filter_results["kept_count"]}, Removed: {filter_results["removed_count"]} duplicate masks'
         })
         
     except Exception as e:

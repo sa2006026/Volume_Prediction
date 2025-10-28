@@ -260,12 +260,14 @@ class SAMAnalyzer:
         
         return circularity
     
-    def segment_droplets(self, method: str = "sam") -> List[Dict]:
+    def segment_droplets(self, method: str = "sam", apply_overlap_filter: bool = True, overlap_threshold: float = 0.4) -> List[Dict]:
         """
-        Segment droplets using Meta's SAM model or fallback methods
+        Segment droplets using Meta's SAM model or fallback methods with automatic quality filtering
         
         Args:
             method: Segmentation method ("sam", "fallback")
+            apply_overlap_filter: Whether to automatically apply overlap filtering
+            overlap_threshold: Overlap threshold for duplicate detection (0.0-1.0)
             
         Returns:
             List of mask dictionaries with statistics
@@ -284,6 +286,20 @@ class SAMAnalyzer:
             stats = self._calculate_mask_statistics(mask, i)
             self.mask_statistics.append(stats)
             self.mask_states.append('active')  # All masks start as active
+        
+        # Automatically apply overlap filter during segmentation
+        if apply_overlap_filter and len(self.masks) > 1:
+            print(f"🔧 Applying automatic overlap filter (threshold: {overlap_threshold})")
+            overlap_results = self.apply_overlap_filter(overlap_threshold)
+            if overlap_results['success']:
+                print(f"✅ Overlap filter: Kept {overlap_results['kept_count']}, removed {overlap_results['removed_count']} duplicate masks")
+        
+        # Add state information to each mask statistic for frontend filtering
+        for i, stats in enumerate(self.mask_statistics):
+            if i < len(self.mask_states):
+                stats['state'] = self.mask_states[i]
+            else:
+                stats['state'] = 'active'
         
         return self.mask_statistics
     
@@ -448,8 +464,8 @@ class SAMAnalyzer:
                 mask_alpha = alpha
                 contour_thickness = 2
                 text_color = (255, 255, 255)
-            elif mask_state == 'intensity_filtered':
-                # Skip intensity filtered masks - don't display them at all
+            elif mask_state in ['intensity_filtered', 'overlap_filtered']:
+                # Skip filtered masks - don't display them at all
                 continue
             else:  # removed
                 color = red_color  # Keep red color but will be dashed
@@ -477,6 +493,86 @@ class SAMAnalyzer:
         
         # Combine overlay with original image
         result = cv2.addWeighted(overlay, 1, mask_overlay, alpha, 0)
+        
+        return result
+    
+    def create_filtered_mask_overlay(self, show_labels: bool = False, alpha: float = 0.3) -> np.ndarray:
+        """
+        Create visualization overlay with clean approach: clear all bounding boxes first,
+        then add back only the ones that meet all quality criteria (intensity and overlap filters)
+        
+        Args:
+            show_labels: Whether to show mask labels
+            alpha: Transparency of mask overlay
+            
+        Returns:
+            Image with filtered mask overlay (only non-filtered masks)
+        """
+        if self.image is None:
+            return np.array([])
+        
+        # Step 1: Start with clean original image (no existing bounding boxes)
+        overlay = self.image.copy()
+        mask_overlay = np.zeros_like(self.image)
+        
+        # Count masks by state for debugging
+        state_counts = {}
+        for state in self.mask_states:
+            state_counts[state] = state_counts.get(state, 0) + 1
+        print(f"📊 Creating overlay with mask states: {state_counts}")
+        
+        # Step 2: Only add back masks and bounding boxes that pass all filters
+        red_color = (0, 0, 255)  # Red in BGR format (OpenCV uses BGR)
+        drawn_count = 0
+        
+        for i, (mask, stats) in enumerate(zip(self.masks, self.mask_statistics)):
+            if not stats:
+                continue
+            
+            # Get mask state
+            mask_state = self.mask_states[i] if i < len(self.mask_states) else 'active'
+            
+            # Step 3: Only process masks that are NOT filtered (intensity or overlap)
+            # This ensures we only add back the masks that meet all quality criteria
+            if mask_state in ['intensity_filtered', 'overlap_filtered']:
+                continue  # Skip completely - don't add this mask or its bounding box
+            
+            drawn_count += 1
+            
+            # Step 4: Add back the qualifying masks with their visual properties
+            if mask_state == 'active':
+                color = red_color
+                mask_alpha = alpha
+                contour_thickness = 2
+                text_color = (255, 255, 255)
+            else:  # removed
+                color = red_color  # Keep red color but will be dashed
+                mask_alpha = alpha * 0.2  # Much more transparent for removed masks
+                contour_thickness = 2
+                text_color = (200, 200, 200)
+            
+            # Step 5: Create colored mask overlay for qualifying masks
+            colored_mask = np.zeros_like(self.image)
+            colored_mask[mask > 0] = color
+            
+            # Add to overlay
+            mask_overlay = cv2.addWeighted(mask_overlay, 1, colored_mask, mask_alpha, 0)
+            
+            # Step 6: Draw bounding box only for qualifying masks
+            bbox = stats['bounding_box']  # [x, y, w, h]
+            x, y, w, h = bbox
+            
+            if mask_state == 'removed':
+                # Draw dashed bounding box for removed masks
+                self._draw_dashed_rectangle(overlay, (x, y), (x + w, y + h), color, contour_thickness + 1, dash_length=8)
+            else:
+                # Draw solid bounding box for active masks
+                cv2.rectangle(overlay, (x, y), (x + w, y + h), color, contour_thickness)
+        
+        # Step 7: Combine the clean overlay with original image
+        result = cv2.addWeighted(overlay, 1, mask_overlay, alpha, 0)
+        
+        print(f"✅ Drew {drawn_count} bounding boxes on overlay (out of {len(self.masks)} total masks)")
         
         return result
     
@@ -800,19 +896,25 @@ class SAMAnalyzer:
         filtered_count = 0
         kept_count = 0
         
-        # Apply intensity filter to mask states
+        # Apply intensity filter only to masks that have passed other filters
         for i, stats in enumerate(self.mask_statistics):
+            # Determine current state; only operate on 'active' or previously 'intensity_filtered' masks
+            current_state = self.mask_states[i] if i < len(self.mask_states) else 'active'
+            if current_state not in ['active', 'intensity_filtered']:
+                # Skip masks filtered by other criteria (e.g., overlap)
+                continue
+            
             mean_intensity = stats.get('mean_intensity', 0)
             
             # Check if intensity is within the specified range
             if min_intensity <= mean_intensity <= max_intensity:
-                # Keep the mask (set to active if it was removed by intensity filter)
+                # Keep/restore mask if it was filtered by intensity previously
                 if i < len(self.mask_states):
                     if self.mask_states[i] == 'intensity_filtered':
                         self.mask_states[i] = 'active'
                 kept_count += 1
             else:
-                # Filter out the mask
+                # Filter out the mask by intensity
                 if i < len(self.mask_states):
                     self.mask_states[i] = 'intensity_filtered'
                 else:
@@ -1002,12 +1104,17 @@ class SAMAnalyzer:
         if not self.mask_statistics:
             return {'high_intensity': [], 'low_intensity': [], 'unit_name': self.unit_name}
         
-        # Get intensity statistics to determine threshold
-        intensities = [stats.get('mean_intensity', 0) for stats in self.mask_statistics]
-        if not intensities:
+        # Get intensity statistics ONLY from active masks for threshold calculation
+        active_intensities = []
+        for i, stats in enumerate(self.mask_statistics):
+            mask_state = self.mask_states[i] if i < len(self.mask_states) else 'active'
+            if mask_state == 'active':
+                active_intensities.append(stats.get('mean_intensity', 0))
+        
+        if not active_intensities:
             return {'high_intensity': [], 'low_intensity': [], 'unit_name': self.unit_name}
         
-        intensity_threshold = np.median(intensities)
+        intensity_threshold = np.median(active_intensities)
         
         high_intensity_diameters = []
         low_intensity_diameters = []
@@ -1046,12 +1153,17 @@ class SAMAnalyzer:
         if not self.mask_statistics:
             return {'high_intensity': [], 'low_intensity': []}
         
-        # Get intensity statistics to determine threshold
-        intensities = [stats.get('mean_intensity', 0) for stats in self.mask_statistics]
-        if not intensities:
+        # Get intensity statistics ONLY from active masks for threshold calculation
+        active_intensities = []
+        for i, stats in enumerate(self.mask_statistics):
+            mask_state = self.mask_states[i] if i < len(self.mask_states) else 'active'
+            if mask_state == 'active':
+                active_intensities.append(stats.get('mean_intensity', 0))
+        
+        if not active_intensities:
             return {'high_intensity': [], 'low_intensity': []}
         
-        intensity_threshold = np.median(intensities)
+        intensity_threshold = np.median(active_intensities)
         
         high_intensity_diameters = []
         low_intensity_diameters = []
@@ -1074,3 +1186,142 @@ class SAMAnalyzer:
             'high_intensity': high_intensity_diameters,
             'low_intensity': low_intensity_diameters
         }
+    
+    def apply_overlap_filter(self, overlap_threshold: float = 0.9) -> Dict:
+        """
+        Filter out overlapping masks by comparing bounding box overlap and removing the larger mask
+        
+        Args:
+            overlap_threshold: Minimum bounding box overlap ratio to consider masks as duplicates (0.0-1.0)
+                              Default 0.4 means 90% overlap of the smaller bounding box
+            
+        Returns:
+            Dictionary with filter results including overlap pairs with bounding box information
+        """
+        if not self.masks or not self.mask_statistics:
+            return {'success': False, 'error': 'No masks available for overlap filtering'}
+        
+        removed_count = 0
+        kept_count = 0
+        overlap_pairs = []
+        
+        # Create a list to track which masks to remove
+        masks_to_remove = set()
+        
+        # Compare each mask's bounding box with every other mask's bounding box
+        for i in range(len(self.mask_statistics)):
+            if i in masks_to_remove:
+                continue
+                
+            bbox_i = self.mask_statistics[i]['bounding_box']
+            area_i = self.mask_statistics[i]['area']
+            
+            for j in range(i + 1, len(self.mask_statistics)):
+                if j in masks_to_remove:
+                    continue
+                    
+                bbox_j = self.mask_statistics[j]['bounding_box']
+                area_j = self.mask_statistics[j]['area']
+                
+                # Calculate overlap between bounding boxes
+                overlap_ratio = self._calculate_bounding_box_overlap(bbox_i, bbox_j)
+                
+                if overlap_ratio >= overlap_threshold:
+                    # Remove the larger mask (keep the smaller one)
+                    if area_i > area_j:
+                        masks_to_remove.add(i)
+                        overlap_pairs.append({
+                            'kept_mask': j,
+                            'removed_mask': i,
+                            'overlap_ratio': overlap_ratio,
+                            'kept_area': area_j,
+                            'removed_area': area_i,
+                            'kept_bbox': bbox_j,
+                            'removed_bbox': bbox_i
+                        })
+                        break  # Don't check further for mask i since it's being removed
+                    else:
+                        masks_to_remove.add(j)
+                        overlap_pairs.append({
+                            'kept_mask': i,
+                            'removed_mask': j,
+                            'overlap_ratio': overlap_ratio,
+                            'kept_area': area_i,
+                            'removed_area': area_j,
+                            'kept_bbox': bbox_i,
+                            'removed_bbox': bbox_j
+                        })
+        
+        # Apply the removal by setting mask states
+        for i in range(len(self.mask_statistics)):
+            if i in masks_to_remove:
+                # Set mask state to 'overlap_filtered'
+                if i < len(self.mask_states):
+                    self.mask_states[i] = 'overlap_filtered'
+                else:
+                    # Extend states if needed
+                    while len(self.mask_states) <= i:
+                        self.mask_states.append('active')
+                    self.mask_states[i] = 'overlap_filtered'
+                removed_count += 1
+            else:
+                # Keep the mask active (unless it was already filtered by other means)
+                if i < len(self.mask_states):
+                    if self.mask_states[i] == 'overlap_filtered':
+                        self.mask_states[i] = 'active'
+                kept_count += 1
+        
+        return {
+            'success': True,
+            'removed_count': removed_count,
+            'kept_count': kept_count,
+            'total_count': len(self.mask_statistics),
+            'overlap_threshold': overlap_threshold,
+            'overlap_pairs': overlap_pairs
+        }
+    
+    def _calculate_bounding_box_overlap(self, bbox1: tuple, bbox2: tuple) -> float:
+        """
+        Calculate the overlap ratio between two bounding boxes
+        
+        Args:
+            bbox1: First bounding box (x, y, w, h)
+            bbox2: Second bounding box (x, y, w, h)
+            
+        Returns:
+            Overlap ratio (0.0 to 1.0) based on the smaller bounding box
+        """
+        x1, y1, w1, h1 = bbox1
+        x2, y2, w2, h2 = bbox2
+        
+        # Calculate the coordinates of the intersection rectangle
+        x_left = max(x1, x2)
+        y_top = max(y1, y2)
+        x_right = min(x1 + w1, x2 + w2)
+        y_bottom = min(y1 + h1, y2 + h2)
+        
+        # Check if there is an intersection
+        if x_right <= x_left or y_bottom <= y_top:
+            return 0.0
+        
+        # Calculate intersection area
+        intersection_area = (x_right - x_left) * (y_bottom - y_top)
+        
+        # Calculate areas of both bounding boxes
+        area1 = w1 * h1
+        area2 = w2 * h2
+        
+        if area1 == 0 or area2 == 0:
+            return 0.0
+        
+        # Calculate overlap ratio based on the smaller bounding box
+        smaller_area = min(area1, area2)
+        overlap_ratio = intersection_area / smaller_area
+        
+        return overlap_ratio
+    
+    def reset_overlap_filter(self):
+        """Reset overlap filter - restore all overlap-filtered masks to active"""
+        for i in range(len(self.mask_states)):
+            if self.mask_states[i] == 'overlap_filtered':
+                self.mask_states[i] = 'active'

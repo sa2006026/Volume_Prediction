@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test: Bounding Box Update Fix</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        
+        .canvas-container {
+            position: relative;
+            display: inline-block;
+            margin: 20px 0;
+            border: 2px solid #ddd;
+        }
+        
+        canvas {
+            display: block;
+        }
+        
+        #boxCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        
+        .control-group {
+            margin: 10px 0;
+        }
+        
+        label {
+            display: inline-block;
+            width: 150px;
+            font-weight: bold;
+        }
+        
+        input[type="file"], input[type="range"], input[type="number"] {
+            margin: 5px;
+        }
+        
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            margin: 15px 0;
+            padding: 10px;
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            border-radius: 4px;
+        }
+        
+        .debug-panel {
+            margin: 20px 0;
+            padding: 15px;
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        
+        .debug-panel h3 {
+            margin-top: 0;
+            color: #856404;
+        }
+        
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px;
+        }
+        
+        .log-entry.info { color: #0066cc; }
+        .log-entry.success { color: #28a745; }
+        .log-entry.warning { color: #ffc107; }
+        .log-entry.error { color: #dc3545; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Test: Bounding Box Update Fix</h1>
+        
+        <div class="status" id="statusMessage">
+            Ready to upload an image and run segmentation.
+        </div>
+        
+        <!-- Controls -->
+        <div class="controls">
+            <h3>1️⃣ Upload Image</h3>
+            <div class="control-group">
+                <input type="file" id="imageUpload" accept="image/*">
+            </div>
+            
+            <h3>2️⃣ Run Segmentation</h3>
+            <div class="control-group">
+                <button id="runSegmentation" disabled>Run SAM Segmentation</button>
+            </div>
+            
+            <h3>3️⃣ Apply Intensity Filter</h3>
+            <div class="control-group">
+                <label>Min Intensity:</label>
+                <input type="range" id="minIntensity" min="0" max="255" value="0">
+                <input type="number" id="minIntensityValue" min="0" max="255" value="0" style="width: 60px;">
+            </div>
+            <div class="control-group">
+                <label>Max Intensity:</label>
+                <input type="range" id="maxIntensity" min="0" max="255" value="255">
+                <input type="number" id="maxIntensityValue" min="0" max="255" value="255" style="width: 60px;">
+            </div>
+            <div class="control-group">
+                <button id="applyFilter" disabled>Apply Intensity Filter</button>
+                <button id="resetFilter" disabled>Reset Filter</button>
+            </div>
+        </div>
+        
+        <!-- Canvas -->
+        <div class="canvas-container">
+            <canvas id="imageCanvas" width="800" height="600"></canvas>
+            <canvas id="boxCanvas" width="800" height="600"></canvas>
+        </div>
+        
+        <!-- Debug Panel -->
+        <div class="debug-panel">
+            <h3>🐛 Debug Log</h3>
+            <div id="debugLog"></div>
+        </div>
+    </div>
+    
+    <script>
+        // ====================================================================
+        // CONFIGURATION
+        // ====================================================================
+        
+        // Single source of truth for current masks
+        let currentMasks = [];
+        
+        // Canvas references
+        let imageCanvas, boxCanvas, imageCtx, boxCtx;
+        
+        // Debug log
+        const debugLog = [];
+        
+        // ====================================================================
+        // INITIALIZATION
+        // ====================================================================
+        
+        function init() {
+            imageCanvas = document.getElementById('imageCanvas');
+            boxCanvas = document.getElementById('boxCanvas');
+            imageCtx = imageCanvas.getContext('2d');
+            boxCtx = boxCanvas.getContext('2d');
+            
+            // Sync slider with number input
+            const minIntensity = document.getElementById('minIntensity');
+            const minIntensityValue = document.getElementById('minIntensityValue');
+            minIntensity.addEventListener('input', () => {
+                minIntensityValue.value = minIntensity.value;
+            });
+            minIntensityValue.addEventListener('input', () => {
+                minIntensity.value = minIntensityValue.value;
+            });
+            
+            const maxIntensity = document.getElementById('maxIntensity');
+            const maxIntensityValue = document.getElementById('maxIntensityValue');
+            maxIntensity.addEventListener('input', () => {
+                maxIntensityValue.value = maxIntensity.value;
+            });
+            maxIntensityValue.addEventListener('input', () => {
+                maxIntensity.value = maxIntensityValue.value;
+            });
+            
+            // Setup event listeners
+            document.getElementById('imageUpload').addEventListener('change', handleImageUpload);
+            document.getElementById('runSegmentation').addEventListener('click', runSegmentation);
+            document.getElementById('applyFilter').addEventListener('click', applyIntensityFilter);
+            document.getElementById('resetFilter').addEventListener('click', resetIntensityFilter);
+            
+            log('✅ Initialized', 'success');
+        }
+        
+        // ====================================================================
+        // LOGGING
+        // ====================================================================
+        
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const entry = `[${timestamp}] ${message}`;
+            debugLog.unshift(entry);
+            
+            const logDiv = document.getElementById('debugLog');
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = entry;
+            logDiv.insertBefore(logEntry, logDiv.firstChild);
+            
+            // Keep only last 50 entries
+            while (logDiv.children.length > 50) {
+                logDiv.removeChild(logDiv.lastChild);
+            }
+            
+            console.log(entry);
+        }
+        
+        function showStatus(message) {
+            document.getElementById('statusMessage').textContent = message;
+            log(message, 'info');
+        }
+        
+        // ====================================================================
+        // DRAWING FUNCTIONS
+        // ====================================================================
+        
+        function clearAllBoundingBoxes() {
+            boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
+            log('🧹 Cleared all bounding boxes', 'info');
+        }
+        
+        function drawBoundingBox(x, y, w, h, maskId) {
+            boxCtx.strokeStyle = '#00ff00';
+            boxCtx.lineWidth = 2;
+            boxCtx.strokeRect(x, y, w, h);
+            
+            boxCtx.fillStyle = '#00ff00';
+            boxCtx.font = '12px Arial';
+            boxCtx.fillText(`#${maskId}`, x + 2, y + 12);
+        }
+        
+        function redrawBoundingBoxes() {
+            log(`🎨 Redrawing ${currentMasks.length} bounding boxes`, 'info');
+            
+            clearAllBoundingBoxes();
+            
+            let drawnCount = 0;
+            currentMasks.forEach(mask => {
+                if (mask.bounding_box && Array.isArray(mask.bounding_box)) {
+                    const [x, y, w, h] = mask.bounding_box;
+                    drawBoundingBox(x, y, w, h, mask.mask_id);
+                    drawnCount++;
+                }
+            });
+            
+            log(`✅ Drew ${drawnCount} boxes`, 'success');
+        }
+        
+        // ====================================================================
+        // API CALLS
+        // ====================================================================
+        
+        async function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            log('📤 Uploading image...', 'info');
+            showStatus('Uploading image...');
+            
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            try {
+                const response = await fetch('/upload_image', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentMasks = data.masks || [];
+                    log(`✅ Image uploaded. Masks: ${currentMasks.length}`, 'success');
+                    
+                    await loadImage(data.image);
+                    redrawBoundingBoxes();
+                    
+                    document.getElementById('runSegmentation').disabled = false;
+                    showStatus('Image uploaded! Click "Run SAM Segmentation"');
+                } else {
+                    log(`❌ Upload failed: ${data.error}`, 'error');
+                    alert('Upload failed: ' + data.error);
+                }
+            } catch (error) {
+                log(`❌ Upload error: ${error.message}`, 'error');
+                alert('Upload error: ' + error.message);
+            }
+        }
+        
+        async function runSegmentation() {
+            log('🔬 Running segmentation...', 'info');
+            showStatus('Running SAM segmentation...');
+            
+            try {
+                const response = await fetch('/run_sam_segmentation', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        model_size: 'vit_b',
+                        crop_layers: 1,
+                        points_per_side: 32,
+                        apply_overlap_filter: true,
+                        overlap_threshold: 0.4
+                    })
+                });
+                
+                const data = await response.json();
+                
+                log(`📥 Segmentation response received`, 'info');
+                
+                if (data.success && data.masks_found) {
+                    // ✅ UPDATE currentMasks
+                    currentMasks = data.masks || [];
+                    log(`✅ Segmentation complete. Masks: ${currentMasks.length}`, 'success');
+                    
+                    await loadImage(data.overlay_image);
+                    redrawBoundingBoxes();
+                    
+                    document.getElementById('applyFilter').disabled = false;
+                    document.getElementById('resetFilter').disabled = false;
+                    showStatus(`Segmentation complete! Found ${currentMasks.length} masks`);
+                } else {
+                    log('⚠️ No masks found', 'warning');
+                    currentMasks = [];
+                    redrawBoundingBoxes();
+                    showStatus('Segmentation complete but no masks found');
+                }
+            } catch (error) {
+                log(`❌ Segmentation error: ${error.message}`, 'error');
+                alert('Segmentation error: ' + error.message);
+            }
+        }
+        
+        async function applyIntensityFilter() {
+            const minIntensity = document.getElementById('minIntensity').value;
+            const maxIntensity = document.getElementById('maxIntensity').value;
+            
+            log(`🔍 Applying intensity filter: ${minIntensity}-${maxIntensity}`, 'info');
+            log(`🔍 Current masks BEFORE filter: ${currentMasks.length}`, 'info');
+            showStatus(`Applying intensity filter (${minIntensity}-${maxIntensity})...`);
+            
+            try {
+                const response = await fetch('/apply_intensity_filter', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        min_intensity: parseInt(minIntensity),
+                        max_intensity: parseInt(maxIntensity)
+                    })
+                });
+                
+                const data = await response.json();
+                
+                log(`📥 Filter response: ${data.masks ? data.masks.length : 'NO MASKS!'} masks`, 'info');
+                
+                if (data.success) {
+                    // ✅ CRITICAL: UPDATE currentMasks with filtered results
+                    const oldCount = currentMasks.length;
+                    currentMasks = data.masks || [];
+                    const newCount = currentMasks.length;
+                    
+                    log(`✅ Masks updated: ${oldCount} → ${newCount}`, 'success');
+                    log(`📊 Kept: ${data.masks_count}, Filtered: ${data.filtered_count}`, 'info');
+                    
+                    await loadImage(data.image);
+                    redrawBoundingBoxes();
+                    
+                    showStatus(`Filter applied! Showing ${newCount} of ${data.total_masks} masks`);
+                } else {
+                    log(`❌ Filter failed: ${data.error}`, 'error');
+                    alert('Filter failed: ' + data.error);
+                }
+            } catch (error) {
+                log(`❌ Filter error: ${error.message}`, 'error');
+                alert('Filter error: ' + error.message);
+            }
+        }
+        
+        async function resetIntensityFilter() {
+            log('🔄 Resetting intensity filter...', 'info');
+            log(`🔄 Current masks BEFORE reset: ${currentMasks.length}`, 'info');
+            showStatus('Resetting intensity filter...');
+            
+            try {
+                const response = await fetch('/reset_intensity_filter', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // ✅ UPDATE currentMasks with all masks restored
+                    const oldCount = currentMasks.length;
+                    currentMasks = data.masks || [];
+                    const newCount = currentMasks.length;
+                    
+                    log(`✅ Masks restored: ${oldCount} → ${newCount}`, 'success');
+                    
+                    await loadImage(data.image);
+                    redrawBoundingBoxes();
+                    
+                    showStatus(`Filter reset! Showing all ${newCount} masks`);
+                } else {
+                    log(`❌ Reset failed: ${data.error}`, 'error');
+                    alert('Reset failed: ' + data.error);
+                }
+            } catch (error) {
+                log(`❌ Reset error: ${error.message}`, 'error');
+                alert('Reset error: ' + error.message);
+            }
+        }
+        
+        // ====================================================================
+        // HELPER FUNCTIONS
+        // ====================================================================
+        
+        async function loadImage(base64Image) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => {
+                    imageCanvas.width = img.width;
+                    imageCanvas.height = img.height;
+                    boxCanvas.width = img.width;
+                    boxCanvas.height = img.height;
+                    
+                    imageCtx.drawImage(img, 0, 0);
+                    
+                    log(`✅ Image loaded: ${img.width}x${img.height}`, 'success');
+                    resolve();
+                };
+                img.onerror = reject;
+                img.src = base64Image;
+            });
+        }
+        
+        // ====================================================================
+        // START
+        // ====================================================================
+        
+        document.addEventListener('DOMContentLoaded', init);
+        
+        // Debug helper
+        window.debugMaskState = function() {
+            console.log('Current masks:', currentMasks.length);
+            console.log('Masks:', currentMasks);
+        };
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,170 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    QUICK FIX: Bounding Boxes Not Updating                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PROBLEM:
+  After applying intensity filter, ALL bounding boxes still show
+  instead of only showing boxes for masks inside the range.
+
+ROOT CAUSE:
+  Frontend not updating its mask list when filter response arrives.
+
+THE FIX (ONE LINE):
+  
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ In your applyIntensityFilter() function, add this line:                   │
+  │                                                                            │
+  │   currentMasks = response.masks;  ← THIS UPDATES THE MASK LIST            │
+  │                                                                            │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+BEFORE (WRONG):
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ let allMasks = [];  // Set once during segmentation                       │
+  │                                                                            │
+  │ async function applyIntensityFilter(min, max) {                           │
+  │     const response = await fetch('/apply_intensity_filter', {...});      │
+  │     const data = await response.json();                                   │
+  │                                                                            │
+  │     // ❌ MISSING: allMasks = data.masks;                                 │
+  │     redrawBoundingBoxes();  // Still uses old allMasks with 45 items!     │
+  │ }                                                                          │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+AFTER (CORRECT):
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ let currentMasks = [];  // Single source of truth                         │
+  │                                                                            │
+  │ async function applyIntensityFilter(min, max) {                           │
+  │     const response = await fetch('/apply_intensity_filter', {            │
+  │         method: 'POST',                                                   │
+  │         headers: {'Content-Type': 'application/json'},                    │
+  │         body: JSON.stringify({                                            │
+  │             min_intensity: parseInt(min),                                 │
+  │             max_intensity: parseInt(max)                                  │
+  │         })                                                                │
+  │     });                                                                   │
+  │                                                                            │
+  │     const data = await response.json();                                   │
+  │                                                                            │
+  │     if (data.success && data.masks) {                                     │
+  │         currentMasks = data.masks;  // ✅ UPDATE THE MASK LIST!           │
+  │         redrawBoundingBoxes();      // ✅ Now uses filtered list!         │
+  │     }                                                                      │
+  │ }                                                                          │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+ALSO UPDATE resetIntensityFilter():
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ async function resetIntensityFilter() {                                   │
+  │     const response = await fetch('/reset_intensity_filter', {            │
+  │         method: 'POST',                                                   │
+  │         headers: {'Content-Type': 'application/json'}                     │
+  │     });                                                                   │
+  │                                                                            │
+  │     const data = await response.json();                                   │
+  │                                                                            │
+  │     if (data.success && data.masks) {                                     │
+  │         currentMasks = data.masks;  // ✅ UPDATE WITH ALL MASKS!          │
+  │         redrawBoundingBoxes();      // ✅ Redraw all boxes!               │
+  │     }                                                                      │
+  │ }                                                                          │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+VERIFY YOUR redrawBoundingBoxes() FUNCTION:
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ function redrawBoundingBoxes() {                                          │
+  │     // Step 1: Clear all boxes                                            │
+  │     clearAllBoundingBoxes();                                              │
+  │                                                                            │
+  │     // Step 2: Draw from currentMasks (NOT from any other array!)         │
+  │     currentMasks.forEach(mask => {                                        │
+  │         if (mask.bounding_box) {                                          │
+  │             const [x, y, w, h] = mask.bounding_box;                       │
+  │             drawBoundingBox(x, y, w, h, mask.mask_id);                    │
+  │         }                                                                  │
+  │     });                                                                    │
+  │ }                                                                          │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+TEST SEQUENCE:
+  1. Upload image      → Should see: 0 boxes
+  2. Run segmentation  → Should see: 45 boxes (or whatever N you get)
+  3. Apply filter      → Should see: 20 boxes (fewer than before)
+  4. Reset filter      → Should see: 45 boxes (all back)
+
+DEBUGGING:
+  Add console.log() to verify:
+  
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ async function applyIntensityFilter(min, max) {                           │
+  │     console.log('BEFORE filter - currentMasks:', currentMasks.length);    │
+  │                                                                            │
+  │     const response = await fetch(...);                                    │
+  │     const data = await response.json();                                   │
+  │                                                                            │
+  │     console.log('Response masks:', data.masks ? data.masks.length : 'NO');│
+  │                                                                            │
+  │     if (data.success && data.masks) {                                     │
+  │         currentMasks = data.masks;                                        │
+  │         console.log('AFTER filter - currentMasks:', currentMasks.length); │
+  │         redrawBoundingBoxes();                                            │
+  │     }                                                                      │
+  │ }                                                                          │
+  └────────────────────────────────────────────────────────────────────────────┘
+  
+  Expected console output:
+    BEFORE filter - currentMasks: 45
+    Response masks: 20
+    AFTER filter - currentMasks: 20
+    🎨 Redrawing bounding boxes from currentMasks (20 masks)
+    ✅ Drew 20 boxes
+
+CHECK BACKEND (Server Console):
+  You should see:
+    🔍 Intensity filter applied: 100-200
+    📊 Total masks: 45, Active: 20, Filtered: 25
+    📦 Returning 20 masks to frontend
+
+CHECK BACKEND STATE:
+  Visit: http://localhost:5014/debug_mask_states
+  
+  Should show:
+    {
+      "total_masks": 45,
+      "active_count": 20,
+      "intensity_filtered_count": 25
+    }
+
+COMMON MISTAKES:
+  ❌ Using multiple mask arrays (originalMasks, filteredMasks, etc.)
+     ✅ Use ONE array: currentMasks
+  
+  ❌ Forgetting to update currentMasks from response
+     ✅ Always: currentMasks = response.masks;
+  
+  ❌ Variable shadowing (let currentMasks = ... inside function)
+     ✅ No 'let' when updating existing variable
+  
+  ❌ Drawing from wrong array (still using originalMasks)
+     ✅ redrawBoundingBoxes() must use currentMasks
+
+FILES TO REFERENCE:
+  - FRONTEND_FIX_TEMPLATE.js    ← Complete working code
+  - TEST_BOUNDING_BOX_UPDATE.html ← Test page with debug panel
+  - SOLUTION_SUMMARY.md         ← Detailed explanation
+  - DEBUG_BOUNDING_BOXES.md     ← Debugging guide
+
+KEY PRINCIPLE:
+  ┌────────────────────────────────────────────────────────────────────────────┐
+  │ Backend tells frontend EXACTLY what to display via the masks array.       │
+  │ Frontend should TRUST and USE that array, not maintain its own filtering. │
+  │                                                                            │
+  │ Upload       → masks: []          → Clear all                             │
+  │ Segmentation → masks: [45 items]  → Draw 45 boxes                         │
+  │ Filter       → masks: [20 items]  → Draw 20 boxes                         │
+  │ Reset        → masks: [45 items]  → Draw 45 boxes                         │
+  └────────────────────────────────────────────────────────────────────────────┘
+
+THAT'S IT! Just make sure your frontend updates currentMasks from the response.
+

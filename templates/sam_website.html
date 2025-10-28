@@ -779,6 +779,20 @@
                         <small style="color: #666;">More points = denser sampling</small>
                     </div>
                     
+                    <div class="input-group">
+                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                            <input type="checkbox" id="enableOverlapFilter" checked style="transform: scale(1.2);" onchange="toggleOverlapFilterControls()">
+                            <span>Overlap Filter</span>
+                        </label>
+                        <div id="overlapFilterControls">
+                            <label for="overlapThresholdSlider" style="font-size: 0.9em; font-weight: normal;">
+                                Threshold: <span id="overlapThresholdSliderValue">0.80</span>
+                            </label>
+                            <input type="range" id="overlapThresholdSlider" min="0.5" max="1.0" step="0.05" value="0.80" oninput="updateOverlapThresholdDisplay()">
+                            <small style="color: #666;">Remove masks with >80% overlap (higher = more strict)</small>
+                        </div>
+                    </div>
+                    
                     <!-- Advanced Options -->
                     <div id="advancedOptions" style="display: none;">
                         <div style="margin: 15px 0;">
@@ -799,6 +813,17 @@
                             <small style="color: #666; display: block; margin-top: 5px;">
                                 Enable GPU processing if available
                             </small>
+                        </div>
+                        
+                        <!-- Quality Filter Options -->
+                        <div style="background: #f0f8ff; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #007bff;">
+                            <h4 style="margin: 0 0 10px 0; color: #007bff; font-size: 0.9em;">
+                                <i class="fas fa-info-circle"></i> Overlap Filter Info
+                            </h4>
+                            <p style="margin: 0; color: #666; font-size: 0.9em;">
+                                The overlap filter can be toggled on/off in the main SAM configuration above. 
+                                When enabled, masks with more than the threshold overlap (based on mask area) will be removed, keeping the smaller mask.
+                            </p>
                         </div>
                     </div>
                     
@@ -829,19 +854,57 @@
                         <span id="parametersSummary">-</span>
                     </div>
                     
-                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <div style="display: flex; gap: 10px; margin-bottom: 8px;">
                         <button class="btn" onclick="showAllMasksModal()" style="font-size: 0.8em; padding: 8px 16px;">
                             <i class="fas fa-list"></i> View All Masks
                         </button>
                         <button class="btn btn-warning" onclick="resetAllMasks()" style="font-size: 0.8em; padding: 8px 16px;">
                             <i class="fas fa-undo"></i> Reset All
                         </button>
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; align-items: flex-start; margin-bottom: 15px;">
                         <button class="btn" id="downloadBtn" onclick="downloadResult()" style="display: none; font-size: 0.8em; padding: 8px 16px;">
                             <i class="fas fa-download"></i> Download Result
                         </button>
                         <button class="btn" id="exportCsvBtn" onclick="exportMaskCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white;">
                             <i class="fas fa-file-csv"></i> Export CSV Data
                         </button>
+                    </div>
+                    
+                    <!-- Overlap Filter Panel -->
+                    <div class="control-group" id="overlapFilterPanel" style="display: none; margin-top: 20px;">
+                        <h3><i class="fas fa-copy"></i> Overlap Filter</h3>
+                        <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                            Remove duplicate masks by comparing bounding box overlap. When two bounding boxes overlap by more than the threshold, the larger mask is removed.
+                        </p>
+                        
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <div style="margin-bottom: 15px;">
+                                <label for="overlapThreshold" style="display: block; font-weight: 600; margin-bottom: 5px;">
+                                    Overlap Threshold:
+                                </label>
+                                <input type="number" id="overlapThreshold" min="0.1" max="1.0" step="0.1" value="0.4" 
+                                       style="width: 100%; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px;">
+                                <small style="color: #666;">Minimum bounding box overlap ratio to consider masks as duplicates (0.1-1.0)</small>
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px;">
+                                <button onclick="applyOverlapFilter()" class="btn" style="flex: 1;">
+                                    <i class="fas fa-filter"></i> Apply Overlap Filter
+                                </button>
+                                <button onclick="resetOverlapFilter()" class="btn" style="flex: 1; background: #6c757d;">
+                                    <i class="fas fa-undo"></i> Reset Filter
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="overlapResults" style="display: none; background: #e8f5e8; padding: 12px; border-radius: 8px; margin-top: 15px;">
+                            <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                                <i class="fas fa-info-circle" style="color: #28a745; margin-right: 8px;"></i>
+                                <strong style="color: #155724;">Overlap Filter Results</strong>
+                            </div>
+                            <div id="overlapResultsText" style="color: #155724; font-size: 0.9em;"></div>
+                        </div>
                     </div>
                     
                     <!-- Unit Conversion Panel -->
@@ -1384,6 +1447,31 @@
                 document.getElementById('pointsPerSide').value;
         }
 
+        function updateOverlapThresholdDisplay() {
+            document.getElementById('overlapThresholdSliderValue').textContent = 
+                parseFloat(document.getElementById('overlapThresholdSlider').value).toFixed(2);
+        }
+
+        function toggleOverlapFilterControls() {
+            const enabled = document.getElementById('enableOverlapFilter').checked;
+            const controls = document.getElementById('overlapFilterControls');
+            
+            if (enabled) {
+                controls.style.display = 'block';
+                controls.style.opacity = '1';
+            } else {
+                controls.style.display = 'block';
+                controls.style.opacity = '0.5';
+                // Disable the slider when unchecked
+                document.getElementById('overlapThresholdSlider').disabled = true;
+            }
+            
+            // Re-enable slider if checked
+            if (enabled) {
+                document.getElementById('overlapThresholdSlider').disabled = false;
+            }
+        }
+
         // Run SAM segmentation
         async function runSAMSegmentation() {
             segmentationStartTime = Date.now();
@@ -1406,13 +1494,19 @@
                     useGpu = document.getElementById('useGpu').checked;
                 }
 
+                // Get overlap filter parameters from the main SAM configuration
+                const applyOverlapFilter = document.getElementById('enableOverlapFilter').checked;
+                const overlapThreshold = parseFloat(document.getElementById('overlapThresholdSlider').value);
+
                 const requestData = {
                     model_size: modelSize,
                     crop_layers: cropLayers,
                     points_per_side: pointsPerSide,
                     backend: backend,
                     performance_mode: performanceMode,
-                    use_gpu: useGpu
+                    use_gpu: useGpu,
+                    apply_overlap_filter: applyOverlapFilter,
+                    overlap_threshold: overlapThreshold
                 };
 
                 console.log('🎯 Starting SAM segmentation with config:', requestData);
@@ -1429,14 +1523,23 @@
                 
                 if (result.success) {
                     if (result.masks_found) {
-                        // Populate frontend mask array
-                        masks = result.masks.map(maskData => new Mask(maskData));
+                        // Filter out overlap-filtered and intensity-filtered masks from frontend display
+                        const allMasks = result.masks || [];
+                        const filteredMasks = allMasks.filter(mask => 
+                            mask.state !== 'intensity_filtered' && mask.state !== 'overlap_filtered');
+                        
+                        console.log(`SAM segmentation filtering: ${allMasks.length} total masks -> ${filteredMasks.length} visible masks`);
+                        
+                        // Populate frontend mask array with only visible masks
+                        masks = filteredMasks.map(maskData => new Mask(maskData));
                         
                         displayImage(result.overlay_image);
                         segmentationResults = result;
                         
-                        // Update results panel
-                        updateResultsPanel(result);
+                        // Update results panel with filtered mask counts
+                        const updatedResult = {...result};
+                        updatedResult.visible_masks_count = filteredMasks.length;
+                        updateResultsPanel(updatedResult);
                         
                         // Enable mask interaction
                         maskInteractionEnabled = true;
@@ -1472,8 +1575,8 @@
             
             statsGrid.innerHTML = `
                 <div class="stat-card">
-                    <div class="stat-value">${result.masks_count}</div>
-                    <div class="stat-label">Total Masks</div>
+                    <div class="stat-value">${result.visible_masks_count || result.masks_count}</div>
+                    <div class="stat-label">Visible Masks</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" style="color: #28a745;">${activeMasks}</div>
@@ -1517,6 +1620,9 @@
             
             // Show intensity filter panel
             document.getElementById('intensityFilterPanel').style.display = 'block';
+            
+            // Hide overlap filter panel since it's now applied automatically during segmentation
+            // document.getElementById('overlapFilterPanel').style.display = 'block';
             
             // Show unit conversion panel
             document.getElementById('unitConversionPanel').style.display = 'block';
@@ -2539,11 +2645,11 @@
                 const result = await response.json();
 
                 if (result.success) {
+                    // Display the clean filtered overlay image from backend
+                    displayImage(result.image);
+                    
                     // Update masks array to reflect filtering - remove filtered masks from frontend
                     await refreshMaskDisplay();
-                    
-                    // Note: We don't call displayImage() here because it would overwrite the original image
-                    // The backend overlay is just for visual reference, frontend handles interaction
                     
                     // Show filter results
                     const filterResults = document.getElementById('filterResults');
@@ -2583,10 +2689,11 @@
                 const result = await response.json();
 
                 if (result.success) {
+                    // Display the reset overlay image from backend (shows all masks)
+                    displayImage(result.image);
+                    
                     // Update masks array to reflect reset - restore all masks
                     await refreshMaskDisplay();
-                    
-                    // Note: We don't call displayImage() here to preserve original image coordinates
                     
                     // Hide filter results
                     document.getElementById('filterResults').style.display = 'none';
@@ -2605,6 +2712,97 @@
 
             } catch (error) {
                 console.error('Error resetting intensity filter:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function applyOverlapFilter() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            const overlapThreshold = document.getElementById('overlapThreshold').value;
+
+            if (!overlapThreshold || overlapThreshold < 0.1 || overlapThreshold > 1.0) {
+                showError('Please enter a valid overlap threshold between 0.1 and 1.0');
+                return;
+            }
+
+            try {
+                const response = await fetch('/apply_overlap_filter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        overlap_threshold: parseFloat(overlapThreshold)
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Display the clean filtered overlay image from backend
+                    displayImage(result.image);
+                    
+                    // Update masks array to reflect filtering - remove filtered masks from frontend
+                    await refreshMaskDisplay();
+                    
+                    // Show filter results
+                    const overlapResults = document.getElementById('overlapResults');
+                    const overlapResultsText = document.getElementById('overlapResultsText');
+                    overlapResultsText.textContent = `Kept ${result.filter_results.kept_count} masks, removed ${result.filter_results.removed_count} duplicate masks (Threshold: ${overlapThreshold})`;
+                    overlapResults.style.display = 'block';
+                    
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error || 'Failed to apply overlap filter');
+                }
+
+            } catch (error) {
+                console.error('Error applying overlap filter:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function resetOverlapFilter() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/reset_overlap_filter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Display the reset overlay image from backend (shows all masks)
+                    displayImage(result.image);
+                    
+                    // Update masks array to reflect reset - restore all masks
+                    await refreshMaskDisplay();
+                    
+                    // Hide filter results
+                    document.getElementById('overlapResults').style.display = 'none';
+                    
+                    // Reset input field
+                    document.getElementById('overlapThreshold').value = 0.4;
+                    
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error || 'Failed to reset overlap filter');
+                }
+
+            } catch (error) {
+                console.error('Error resetting overlap filter:', error);
                 showError('Network error: ' + error.message);
             }
         }
@@ -2754,9 +2952,12 @@
 
                 if (result.success) {
                     // Update masks data with new unit information
-                    // Filter out intensity_filtered masks from frontend display
+                    // Filter out filtered masks from frontend display (intensity and overlap filtered)
                     const allMasks = result.masks || [];
-                    const filteredMasks = allMasks.filter(mask => mask.state !== 'intensity_filtered');
+                    const filteredMasks = allMasks.filter(mask => 
+                        mask.state !== 'intensity_filtered' && mask.state !== 'overlap_filtered');
+                    
+                    console.log(`Frontend filtering: ${allMasks.length} total masks -> ${filteredMasks.length} visible masks`);
                     
                     // Convert to Mask objects to ensure proper functionality
                     masks = filteredMasks.map(maskData => new Mask(maskData));

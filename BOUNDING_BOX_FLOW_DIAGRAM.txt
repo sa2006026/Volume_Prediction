@@ -1,0 +1,201 @@
+═══════════════════════════════════════════════════════════════════════════════
+                    BOUNDING BOX DRAWING FLOW DIAGRAM
+═══════════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1️⃣  UPLOAD IMAGE                                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   Frontend                      Backend                    Frontend Action
+   ────────                      ───────                    ───────────────
+   Upload file    ──────────►    /upload_image    ────────► clearAllBoundingBoxes()
+                                      ▼                      (masks: [] = nothing to draw)
+                                 Load image
+                                 Reset masks
+                                      ▼
+                                 Return {
+                                   masks: [],      ◄───────  Display clean image
+                                   masks_count: 0            No bounding boxes!
+                                 }
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2️⃣  RUN SEGMENTATION                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   Frontend                      Backend                    Frontend Action
+   ────────                      ───────                    ───────────────
+   Run SAM      ──────────►  /run_sam_segmentation ───────► clearAllBoundingBoxes()
+                                      ▼                              ▼
+                                 Segment image                   Draw each box:
+                                 Apply overlap filter            masks.forEach(m => 
+                                      ▼                            drawBox(m.bounding_box))
+                                 Filter by state                      
+                                 (only 'active')                 
+                                      ▼                          Example:
+                                 Return {                        ┌──────┐  ┌─────┐
+                                   masks: [                      │ Box1 │  │Box2 │
+                                     {id:0, bbox, state:'active'}, └──┘  │Box3│
+                                     {id:1, bbox, state:'active'},     └────┘
+                                     ...                          
+                                   ],                            Total: 45 boxes
+                                   masks_count: 45
+                                 }
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3️⃣  APPLY INTENSITY FILTER (e.g., keep only 100-200 intensity)             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   Frontend                      Backend                    Frontend Action
+   ────────                      ───────                    ───────────────
+   Apply filter ──────────►  /apply_intensity_filter ──────► clearAllBoundingBoxes()
+   (min:100,                          ▼                              ▼
+    max:200)                     Check each mask:                Draw fewer boxes:
+                                 • intensity 150 → keep         masks.forEach(m =>
+                                 • intensity  50 → filter out     drawBox(m.bounding_box))
+                                 • intensity 180 → keep              ▼
+                                      ▼                          Example:
+                                 Change states:                  ┌──────┐
+                                 • mask[0]: active               │ Box1 │
+                                 • mask[1]: intensity_filtered      └──┘  
+                                 • mask[2]: active                    │Box3│
+                                      ▼                               └────┘
+                                 Return {
+                                   masks: [                      Only 20 boxes now!
+                                     {id:0, state:'active'},     (25 boxes filtered out)
+                                     {id:2, state:'active'},
+                                     ...                         
+                                   ],                            
+                                   masks_count: 20,
+                                   filter_results: {
+                                     kept: 20,
+                                     filtered: 25
+                                   }
+                                 }
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4️⃣  RESET INTENSITY FILTER                                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   Frontend                      Backend                    Frontend Action
+   ────────                      ───────                    ───────────────
+   Reset filter ──────────►  /reset_intensity_filter ──────► clearAllBoundingBoxes()
+                                      ▼                              ▼
+                                 Reset all states:              Draw all boxes again:
+                                 • mask[0]: active              masks.forEach(m =>
+                                 • mask[1]: active (was filtered) drawBox(m.bounding_box))
+                                 • mask[2]: active                   ▼
+                                      ▼                          Example:
+                                 Return {                        ┌──────┐  ┌─────┐
+                                   masks: [                      │ Box1 │  │Box2 │
+                                     {id:0, state:'active'},     └──┘  │Box3│
+                                     {id:1, state:'active'},         └────┘
+                                     {id:2, state:'active'},
+                                     ...                          Back to 45 boxes!
+                                   ],
+                                   masks_count: 45
+                                 }
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5️⃣  TOGGLE INDIVIDUAL MASK (user clicks on a mask)                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   Frontend                      Backend                    Frontend Action
+   ────────                      ───────                    ───────────────
+   Click mask   ──────────►   /toggle_mask        ─────────► Option A:
+   at (x,y)                          ▼                        Fetch /get_all_masks
+                                 Find mask at point                ▼
+                                      ▼                        clearAllBoundingBoxes()
+                                 Toggle state:                      ▼
+                                 active → removed              Draw only active masks
+                                 or                                 
+                                 removed → active              Option B:
+                                      ▼                        Just hide/show that one box
+                                 Return {
+                                   toggle_info: {
+                                     mask_id: 10,
+                                     old_state: 'active',
+                                     new_state: 'removed'
+                                   }
+                                 }
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                              MASK STATE DIAGRAM
+═══════════════════════════════════════════════════════════════════════════════
+
+                        ┌──────────────────────┐
+                        │   Initial Upload     │
+                        │   No masks yet       │
+                        └──────────┬───────────┘
+                                   │
+                                   ▼
+                        ┌──────────────────────┐
+                        │   Run Segmentation   │
+                        │   All masks: ACTIVE  │ ◄─────────────┐
+                        └──────────┬───────────┘                │
+                                   │                            │
+                    ┌──────────────┼──────────────┐             │
+                    │              │              │             │
+                    ▼              ▼              ▼             │
+          ┌─────────────┐  ┌─────────────┐  ┌─────────────┐   │
+          │ Apply       │  │ User Toggle │  │   Reset     │   │
+          │ Intensity   │  │   Manual    │  │   Filter    │───┘
+          │   Filter    │  │   Remove    │  └─────────────┘
+          └──────┬──────┘  └──────┬──────┘
+                 │                │
+                 ▼                ▼
+    ┌──────────────────┐  ┌──────────────────┐
+    │ State: ACTIVE    │  │ State: REMOVED   │
+    │ or               │  │                  │
+    │ INTENSITY_       │  │ (User toggled)   │
+    │ FILTERED         │  │                  │
+    └──────────────────┘  └──────────────────┘
+         │                        │
+         │  Only ACTIVE           │  Not shown
+         │  masks get             │
+         │  bounding boxes        │
+         └────────────────────────┘
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                          FRONTEND PSEUDOCODE
+═══════════════════════════════════════════════════════════════════════════════
+
+class BoundingBoxDrawer {
+    clearAll() {
+        // Remove all existing bounding boxes from canvas
+        this.boxes = [];
+        this.redrawCanvas();
+    }
+    
+    drawFromMasks(masks) {
+        // Step 1: Clear everything
+        this.clearAll();
+        
+        // Step 2: Draw only the masks in the array
+        masks.forEach(mask => {
+            const [x, y, w, h] = mask.bounding_box;
+            this.drawBox(x, y, w, h, '#00ff00');  // Green box
+            this.boxes.push({id: mask.mask_id, rect: [x, y, w, h]});
+        });
+    }
+}
+
+// Usage pattern for ALL endpoints:
+function handleBackendResponse(response) {
+    if (response.success && response.masks !== undefined) {
+        boxDrawer.drawFromMasks(response.masks);
+        // This works for:
+        // - Upload (masks: [] → clears all)
+        // - Segmentation (masks: [...45 items] → draws 45 boxes)
+        // - Intensity filter (masks: [...20 items] → draws 20 boxes)
+        // - Reset filter (masks: [...45 items] → draws 45 boxes)
+    }
+}
+
+═══════════════════════════════════════════════════════════════════════════════
+
