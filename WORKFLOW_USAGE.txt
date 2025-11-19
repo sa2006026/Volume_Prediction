@@ -1,0 +1,87 @@
+WORKFLOW: Max Diameter, Fluorescence Overlap (MIP), and Occupancy Calculation
+
+This guide explains how to use the Python code in this folder to:
+1) Find the max diameter for each unique droplet across z-slices (BF CSVs)
+2) Overlap fluorescence (MIP) results
+3) Match fluorescence to BF droplets and export occupancy
+
+REQUIREMENTS
+- Python 3.8+
+- pip install pandas numpy scipy
+- (Optional for visualization) pip install matplotlib seaborn
+
+FILE LOCATIONS (defaults used by the scripts)
+- BF per-slice CSVs: /data3/megan_data/Jimmy/Volume_Prediction/csv/1/csv_realunit/BF imaging/z_0.csv ... z_15.csv
+- Fluorescence MIP CSV: /data3/megan_data/Jimmy/Volume_Prediction/csv/MIB_6_035_2.csv
+- Outputs:
+  - /data3/megan_data/Jimmy/max_diameter_droplets.csv
+  - /data3/megan_data/Jimmy/droplet_occupancy.csv
+
+IMPORTANT ASSUMPTION
+The fluorescence CSV (MIP) must contain columns: Center_X_px, Center_Y_px. Diameter_μm is optional.
+The BF CSVs (z_*.csv) must contain: Center_X_px, Center_Y_px, Diameter_μm.
+
+STEP 1 — Find the max diameter across z-slices (BF)
+- This step identifies unique droplets across z_0 ... z_15 using a 10-pixel proximity rule and records the maximum diameter per droplet.
+
+Commands:
+  cd /data3/megan_data/Jimmy
+  python3 analyze_max_diameter.py
+
+Output:
+  - max_diameter_droplets.csv with columns: Center_X_px, Center_Y_px, Diameter_μm, slide
+  - Console summary of droplet counts per z-slice
+
+STEP 2 — Overlap the fluorescence images (MIP)
+- This repository does not compute MIP images. Create a fluorescence MIP from your z-stack using your imaging tool (e.g., ImageJ: Stacks > Z Project > Max Intensity), detect droplets, and export a CSV with Center_X_px and Center_Y_px.
+- Place or reference that CSV at:
+  /data3/megan_data/Jimmy/Volume_Prediction/csv/MIB_6_035_2.csv
+
+  merge_zstack.py 
+
+If your fluorescence CSV path or name differs, you can edit the variable in:
+  /data3/megan_data/Jimmy/match_fluorescence.py
+  (variable: fluorescence_file)
+
+STEP 3 — Match fluorescence to BF and export occupancy
+- This step matches fluorescence detections to the BF unique droplets using a 10-pixel radius and exports a two-column CSV: Diameter_μm, occupancy (0=empty, 1=fluorescence).
+
+Commands:
+  cd /data3/megan_data/Jimmy
+  python3 match_fluorescence.py
+
+Output:
+  - droplet_occupancy.csv with columns: Diameter_μm, occupancy
+  - Sorted by occupancy (all 0 first, then 1)
+  - Console summary (counts and basic diameter stats)
+
+Additional
+merge_zstack.py   --> create mip image through z-stack image
+
+OPTIONAL — Visualization of BF max-diameter results
+- Creates a PNG summarizing counts by z-slice and diameter distributions.
+
+Commands:
+  cd /data3/megan_data/Jimmy
+  python3 visualize_results.py
+
+Output:
+  - droplet_analysis_visualization.png
+
+CONFIGURATION
+- Proximity threshold (pixel error margin): default 10 px.
+  To change:
+    - In analyze_max_diameter.py, the call to process_all_slides(..., error_margin=10)
+    - In match_fluorescence.py, the call to match_fluorescence_to_droplets(..., error_margin=10)
+
+TROUBLESHOOTING
+- If no BF z_*.csv files are found, verify the BF imaging path (Step 1 section above).
+- Ensure CSV column names exactly match: Center_X_px, Center_Y_px, Diameter_μm.
+- If fluorescence matches seem too strict/lenient, adjust error_margin from 10 to another value.
+
+CONTACT
+- All scripts live in: /data3/megan_data/Jimmy
+  - analyze_max_diameter.py
+  - process_droplets.py
+  - match_fluorescence.py
+  - visualize_results.py (optional)

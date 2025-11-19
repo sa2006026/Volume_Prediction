@@ -162,7 +162,7 @@ class SAMAnalyzer:
                 
                 # Circularity filter - only keep reasonably circular shapes
                 circularity = self._calculate_circularity(mask)
-                if circularity < 0.5:
+                if circularity < 0.75:
                     continue
                 
                 masks.append(mask)
