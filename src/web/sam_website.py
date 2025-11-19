@@ -1688,7 +1688,7 @@ if __name__ == '__main__':
     print()
     
     try:
-        app.run(host='127.0.0.1', port=5014, debug=False, use_reloader=False)
+        app.run(host='127.0.0.1', port=5015, debug=False, use_reloader=False)
     except Exception as e:
         print(f"❌ Error starting server: {e}")
         import traceback
