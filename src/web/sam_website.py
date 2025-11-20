@@ -145,15 +145,16 @@ class SAMWebEngine:
             alpha=0.3
         )
     
-    def apply_mask_overlap_filter(self, overlap_threshold: float = 0.8):
+    def apply_mask_overlap_filter(self, overlap_threshold: float = 0.8, remove_mode: str = 'larger'):
         """Apply mask-based overlap filtering instead of bbox-based.
 
         Logic: For any two active masks i, j, compute the intersection area of
         the binary masks. If intersection / min(area_i, area_j) >= overlap_threshold,
-        mark the larger-area mask as 'overlap_filtered'.
+        mark the mask as 'overlap_filtered' based on remove_mode.
 
         Args:
             overlap_threshold: Ratio in [0,1]. E.g., 0.8 => 80% of smaller mask overlapped
+            remove_mode: 'larger' to remove larger mask, 'smaller' to remove smaller mask
 
         Returns:
             Dict summary with kept_count and removed_count.
@@ -208,9 +209,23 @@ class SAMWebEngine:
                     continue
                 ratio = inter / float(base)
                 if ratio >= float(overlap_threshold):
-                    # Remove larger mask; if tie, remove j
-                    remove_idx = i if ai >= aj else j
+                    # Remove mask based on remove_mode
+                    if remove_mode == 'smaller':
+                        # Remove the smaller mask between i and j
+                        # If ai >= aj: j is smaller, remove j
+                        # If ai < aj: i is smaller, remove i
+                        remove_idx = j if ai >= aj else i
+                    else:  # 'larger' (default)
+                        # Remove the larger mask between i and j
+                        # If ai >= aj: i is larger, remove i
+                        # If ai < aj: j is larger, remove j
+                        remove_idx = i if ai >= aj else j
                     to_remove.add(remove_idx)
+                    
+                    # CRITICAL FIX: If current mask i is marked for removal, 
+                    # stop comparing it with other masks
+                    if remove_idx == i:
+                        break
 
         # Apply removals by updating states
         removed_count = 0
@@ -345,7 +360,7 @@ class SAMWebEngine:
         
         return True
     
-    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.8):
+    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.8, overlap_remove_mode: str = 'larger'):
         """Perform SAM segmentation with current parameters and optional overlap filtering"""
         if self.sam_analyzer is None:
             raise ValueError("No image loaded")
@@ -369,7 +384,7 @@ class SAMWebEngine:
         
         # Apply mask-based overlap filter (overrides any bbox-based logic inside analyzer)
         if apply_overlap_filter:
-            self.apply_mask_overlap_filter(overlap_threshold)
+            self.apply_mask_overlap_filter(overlap_threshold, overlap_remove_mode)
         
         # Create overlay visualization using clean approach
         overlay_image = self.create_clean_filtered_overlay()
@@ -503,8 +518,56 @@ class SAMWebEngine:
         
         return None, None
     
+    def get_mask_preview_by_id(self, mask_id: int):
+        """Get mask preview by mask ID directly"""
+        print(f"   🔍 get_mask_preview_by_id called with mask_id={mask_id}")
+        
+        if self.sam_analyzer is None or not self.sam_analyzer.masks:
+            print(f"   ❌ No sam_analyzer or no masks")
+            return None, None
+        
+        print(f"   📊 Total masks available: {len(self.sam_analyzer.masks)}")
+        
+        if mask_id < 0 or mask_id >= len(self.sam_analyzer.masks):
+            print(f"   ❌ mask_id {mask_id} out of range [0, {len(self.sam_analyzer.masks)-1}]")
+            return None, None
+        
+        # Check if any filter is active and skip filtered masks
+        if self.is_any_filter_active():
+            mask_state = (self.sam_analyzer.mask_states[mask_id] 
+                        if mask_id < len(self.sam_analyzer.mask_states) else 'active')
+            if mask_state in ['intensity_filtered', 'overlap_filtered']:
+                print(f"   ❌ Mask {mask_id} is filtered out (state: {mask_state})")
+                return None, None  # Skip filtered masks
+        
+        # Get mask center for preview generation
+        mask_stats = self.sam_analyzer.mask_statistics[mask_id]
+        center_x = int(mask_stats.get('center_x', 0))
+        center_y = int(mask_stats.get('center_y', 0))
+        print(f"   📍 Mask center: ({center_x}, {center_y})")
+        
+        # Create a focused preview showing only this specific blob
+        preview_image = self._create_blob_focused_preview(mask_id, center_x, center_y, preview_size=(200, 200))
+        
+        if preview_image is not None:
+            print(f"   ✅ Preview image created successfully")
+            # Convert to base64
+            preview_base64 = self.get_image_as_base64(preview_image)
+            
+            # Get mask info
+            mask_info = mask_stats.copy()
+            mask_info['mask_id'] = mask_id
+            mask_info['state'] = (self.sam_analyzer.mask_states[mask_id] 
+                                if mask_id < len(self.sam_analyzer.mask_states) else 'active')
+            
+            return preview_base64, mask_info
+        else:
+            print(f"   ❌ _create_blob_focused_preview returned None")
+        
+        return None, None
+    
     def _create_blob_focused_preview(self, mask_id: int, x: int, y: int, preview_size: tuple = (200, 200)):
-        """Create a focused preview showing the specific blob being hovered"""
+        """Create a focused preview showing the specific blob (actual mask, not just bbox)"""
         if self.sam_analyzer is None or mask_id >= len(self.sam_analyzer.masks):
             return None
         
@@ -533,24 +596,100 @@ class SAMWebEngine:
         if blob_region.size == 0:
             return None
         
-        # Create a composite image showing the blob with mask overlay
+        # Create a composite image showing the blob with actual mask overlay (not just bbox)
         preview = blob_region.copy()
         
-        # Apply mask overlay (semi-transparent red)
+        # Create overlay (semi-transparent Red for the mask region)
         mask_overlay = np.zeros_like(preview)
-        mask_overlay[mask_region > 0] = [0, 0, 255]  # Red overlay for mask
+        mask_area = (mask_region > 0)
+        mask_overlay[mask_area] = [0, 0, 255]  # Red
         
-        # Blend the overlay
-        alpha = 0.3
-        preview = cv2.addWeighted(preview, 1-alpha, mask_overlay, alpha, 0)
+        # Blend the overlay with the region
+        alpha = 0.4
+        preview = cv2.addWeighted(preview, 1 - alpha, mask_overlay, alpha, 0)
         
         # Resize to preview size
         preview = cv2.resize(preview, preview_size)
         
         return preview
     
+    def apply_pre_segmentation_filter(self, brightness: int = 0, contrast: float = 1.0, 
+                                      min_threshold: int = -1, max_threshold: int = -1, 
+                                      filter_mode: str = 'remove_below'):
+        """
+        Apply pre-segmentation image processing with advanced pixel filtering.
+        This prepares the image before SAM segmentation.
+        
+        Args:
+            brightness: Brightness adjustment (-100 to +100, 0 = no change)
+            contrast: Contrast adjustment (0.5 to 3.0, 1.0 = no change)
+            min_threshold: Minimum intensity threshold (0-255, -1 = not used)
+            max_threshold: Maximum intensity threshold (0-255, -1 = not used)
+            filter_mode: How to apply thresholds:
+                - 'remove_below': Remove pixels below min_threshold (set to black)
+                - 'remove_above': Remove pixels above max_threshold (set to black)
+                - 'remove_outside': Remove pixels outside [min_threshold, max_threshold] range
+                - 'keep_range': Keep only pixels within [min_threshold, max_threshold] range (same as remove_outside)
+        
+        Returns:
+            Adjusted image with filters applied
+        """
+        if self.original_image is None:
+            return None
+        
+        # Start with the original image
+        adjusted_image = self.original_image.copy().astype(np.float32)
+        
+        # Apply brightness adjustment (-100 to +100)
+        if brightness != 0:
+            adjusted_image = adjusted_image + brightness
+        
+        # Apply contrast adjustment (0.5 to 3.0, where 1.0 is no change)
+        if contrast != 1.0:
+            # Apply contrast around the middle value (128)
+            adjusted_image = 128 + contrast * (adjusted_image - 128)
+        
+        # Clip values to valid range
+        adjusted_image = np.clip(adjusted_image, 0, 255).astype(np.uint8)
+        
+        # Apply pixel intensity filtering based on mode
+        if min_threshold >= 0 or max_threshold >= 0:
+            # Convert to grayscale for intensity calculation
+            gray_image = cv2.cvtColor(adjusted_image, cv2.COLOR_BGR2GRAY)
+            
+            if filter_mode == 'remove_below' and min_threshold >= 0:
+                # Remove pixels below minimum threshold
+                threshold_mask = gray_image < min_threshold
+                adjusted_image[threshold_mask] = [0, 0, 0]
+            
+            elif filter_mode == 'remove_above' and max_threshold >= 0:
+                # Remove pixels above maximum threshold
+                threshold_mask = gray_image > max_threshold
+                adjusted_image[threshold_mask] = [0, 0, 0]
+            
+            elif filter_mode in ['remove_outside', 'keep_range']:
+                # Remove pixels outside the range [min_threshold, max_threshold]
+                if min_threshold >= 0 and max_threshold >= 0:
+                    threshold_mask = (gray_image < min_threshold) | (gray_image > max_threshold)
+                    adjusted_image[threshold_mask] = [0, 0, 0]
+                elif min_threshold >= 0:
+                    # Only min specified, remove below
+                    threshold_mask = gray_image < min_threshold
+                    adjusted_image[threshold_mask] = [0, 0, 0]
+                elif max_threshold >= 0:
+                    # Only max specified, remove above
+                    threshold_mask = gray_image > max_threshold
+                    adjusted_image[threshold_mask] = [0, 0, 0]
+        
+        # Persist adjusted image for SAM segmentation
+        self.last_adjusted_image = adjusted_image.copy()
+        self.current_image = adjusted_image.copy()
+        
+        return adjusted_image
+    
     def apply_image_adjustments(self, brightness: int = 0, contrast: float = 1.0, intensity_threshold: int = -1):
-        """Apply brightness, contrast, and intensity threshold adjustments to the image"""
+        """Apply brightness, contrast, and intensity threshold adjustments to the image
+        (Legacy method - kept for backward compatibility)"""
         if self.original_image is None:
             return None
         
@@ -584,6 +723,16 @@ class SAMWebEngine:
         self.current_image = adjusted_image.copy()
         
         return adjusted_image
+    
+    def reset_to_original_image(self):
+        """Reset the current image back to the original uploaded image"""
+        if self.original_image is None:
+            return None
+        
+        self.current_image = self.original_image.copy()
+        self.last_adjusted_image = None
+        
+        return self.current_image
     
     def get_active_masks_region(self):
         """Get the combined region of all active masks"""
@@ -803,6 +952,7 @@ def run_sam_segmentation():
         use_gpu = data.get('use_gpu', True)
         apply_overlap_filter = data.get('apply_overlap_filter', True)
         overlap_threshold = data.get('overlap_threshold', 0.8)
+        overlap_remove_mode = data.get('overlap_remove_mode', 'larger')
         
         if engine.current_image is None:
             return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
@@ -818,7 +968,8 @@ def run_sam_segmentation():
         )
         overlay_image, summary, mask_stats = engine.perform_sam_segmentation(
             apply_overlap_filter=apply_overlap_filter,
-            overlap_threshold=overlap_threshold
+            overlap_threshold=overlap_threshold,
+            overlap_remove_mode=overlap_remove_mode
         )
         
         if overlay_image is None:
@@ -982,13 +1133,24 @@ def reset_all_masks():
 
 @app.route('/get_mask_preview', methods=['POST'])
 def get_mask_preview():
-    """Get mask preview for hover display at specific coordinates"""
+    """Get mask preview for hover display at specific coordinates or by mask ID"""
     try:
         data = request.get_json()
-        x = data.get('x', 0)
-        y = data.get('y', 0)
         
-        preview_base64, mask_info = engine.get_mask_preview_at_point(int(x), int(y))
+        # Support both coordinate-based and ID-based lookup
+        if 'mask_id' in data:
+            # Direct mask ID lookup
+            mask_id = data.get('mask_id')
+            print(f"🔍 Preview request for mask_id: {mask_id}")
+            preview_base64, mask_info = engine.get_mask_preview_by_id(int(mask_id))
+            print(f"   Result: preview={'available' if preview_base64 else 'None'}, mask_info={'available' if mask_info else 'None'}")
+        else:
+            # Coordinate-based lookup (legacy)
+            x = data.get('x', 0)
+            y = data.get('y', 0)
+            print(f"🔍 Preview request for coordinates: ({x}, {y})")
+            preview_base64, mask_info = engine.get_mask_preview_at_point(int(x), int(y))
+            print(f"   Result: preview={'available' if preview_base64 else 'None'}, mask_info={'available' if mask_info else 'None'}")
         
         if preview_base64 and mask_info:
             # Add unit conversion information if enabled
@@ -1003,24 +1165,96 @@ def get_mask_preview():
                 'success': True,
                 'has_mask': True,
                 'preview_image': preview_base64,
-                'mask_info': mask_info,
-                'coordinates': {'x': x, 'y': y}
+                'mask_info': mask_info
             })
         else:
+            print(f"   ❌ No preview available")
             return jsonify({
                 'success': True,
                 'has_mask': False,
                 'preview_image': None,
-                'mask_info': None,
-                'coordinates': {'x': x, 'y': y}
+                'mask_info': None
             })
+        
+    except Exception as e:
+        print(f"❌ Error in get_mask_preview: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/apply_pre_segmentation_filter', methods=['POST'])
+def apply_pre_segmentation_filter():
+    """Apply pre-segmentation image processing with brightness, contrast, and advanced pixel filtering"""
+    try:
+        data = request.get_json()
+        brightness = data.get('brightness', 0)
+        contrast = data.get('contrast', 1.0)
+        min_threshold = data.get('min_threshold', -1)
+        max_threshold = data.get('max_threshold', -1)
+        filter_mode = data.get('filter_mode', 'remove_below')
+        
+        if engine.original_image is None:
+            return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
+        
+        # Apply pre-segmentation filter
+        adjusted_image = engine.apply_pre_segmentation_filter(
+            brightness=int(brightness),
+            contrast=float(contrast),
+            min_threshold=int(min_threshold),
+            max_threshold=int(max_threshold),
+            filter_mode=str(filter_mode)
+        )
+        
+        if adjusted_image is None:
+            return jsonify({'success': False, 'error': 'Failed to apply pre-segmentation filter'})
+        
+        # Convert to base64
+        adjusted_base64 = engine.get_image_as_base64(adjusted_image)
+        
+        return jsonify({
+            'success': True,
+            'filtered_image': adjusted_base64,
+            'parameters': {
+                'brightness': brightness,
+                'contrast': contrast,
+                'min_threshold': min_threshold,
+                'max_threshold': max_threshold,
+                'filter_mode': filter_mode
+            },
+            'message': 'Pre-segmentation filter applied successfully. You can now run SAM segmentation on the filtered image.'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/reset_pre_segmentation_filter', methods=['POST'])
+def reset_pre_segmentation_filter():
+    """Reset image to original state before any pre-segmentation filters"""
+    try:
+        if engine.original_image is None:
+            return jsonify({'success': False, 'error': 'No image loaded'})
+        
+        # Reset to original image
+        reset_image = engine.reset_to_original_image()
+        
+        if reset_image is None:
+            return jsonify({'success': False, 'error': 'Failed to reset image'})
+        
+        # Convert to base64
+        reset_base64 = engine.get_image_as_base64(reset_image)
+        
+        return jsonify({
+            'success': True,
+            'image': reset_base64,
+            'message': 'Image reset to original state. All filters cleared.'
+        })
         
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/apply_image_adjustments', methods=['POST'])
 def apply_image_adjustments():
-    """Apply brightness, contrast, and intensity threshold adjustments"""
+    """Apply brightness, contrast, and intensity threshold adjustments (Legacy endpoint)"""
     try:
         data = request.get_json()
         brightness = data.get('brightness', 0)
@@ -1340,13 +1574,15 @@ def apply_overlap_filter():
     try:
         data = request.get_json()
         overlap_threshold = data.get('overlap_threshold', 0.8)
+        remove_mode = data.get('remove_mode', 'larger')
         
         if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
             return jsonify({'success': False, 'error': 'No masks available for filtering'})
         
         # Apply mask-based overlap filter (intersection over smaller mask area)
         filter_results = engine.apply_mask_overlap_filter(
-            overlap_threshold=float(overlap_threshold)
+            overlap_threshold=float(overlap_threshold),
+            remove_mode=str(remove_mode)
         )
         
         if not filter_results['success']:
@@ -1357,12 +1593,15 @@ def apply_overlap_filter():
         
         overlay_base64 = engine.get_image_as_base64(overlay_image)
         
+        remove_text = "larger" if remove_mode == 'larger' else "smaller"
+        
         return jsonify({
             'success': True,
             'image': overlay_base64,
             'filter_results': filter_results,
             'overlap_threshold': overlap_threshold,
-            'message': f'Overlap filter applied (mask-based)! Kept: {filter_results["kept_count"]}, Removed: {filter_results["removed_count"]} duplicate masks'
+            'remove_mode': remove_mode,
+            'message': f'Overlap filter applied (removing {remove_text} masks)! Kept: {filter_results["kept_count"]}, Removed: {filter_results["removed_count"]} duplicate masks'
         })
         
     except Exception as e:
