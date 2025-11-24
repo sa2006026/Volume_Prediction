@@ -168,6 +168,102 @@ class SAMWebEngine:
             alpha=0.3
         )
     
+    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 3, darkness_threshold: int = 100):
+        """Extract dark pixels around the edge/contour of a specific mask.
+        
+        Args:
+            mask_id: ID of the mask to process
+            edge_width: Width of the edge region to analyze (in pixels)
+            darkness_threshold: Pixel intensity threshold (0-255). Pixels below this are considered "dark"
+        
+        Returns:
+            Dictionary with dark pixel mask and statistics
+        """
+        if self.sam_analyzer is None or mask_id >= len(self.sam_analyzer.masks):
+            return None
+        
+        mask = self.sam_analyzer.masks[mask_id]
+        
+        # Get the binary mask
+        binary_mask = (mask > 0).astype(np.uint8)
+        
+        # Find contour of the mask
+        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        
+        if not contours:
+            return None
+        
+        # Create an edge region mask (dilate - erode to get edge band)
+        kernel = np.ones((edge_width, edge_width), np.uint8)
+        dilated = cv2.dilate(binary_mask, kernel, iterations=1)
+        eroded = cv2.erode(binary_mask, kernel, iterations=1)
+        edge_region = dilated - eroded
+        
+        # Convert image to grayscale for intensity analysis
+        gray_image = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2GRAY)
+        
+        # Find dark pixels in the edge region
+        dark_pixels_mask = np.zeros_like(gray_image, dtype=np.uint8)
+        dark_pixels_mask[(edge_region > 0) & (gray_image < darkness_threshold)] = 255
+        
+        # Count dark pixels
+        dark_pixel_count = np.count_nonzero(dark_pixels_mask)
+        edge_pixel_count = np.count_nonzero(edge_region)
+        dark_ratio = dark_pixel_count / edge_pixel_count if edge_pixel_count > 0 else 0
+        
+        return {
+            'mask_id': mask_id,
+            'dark_pixels_mask': dark_pixels_mask,
+            'dark_pixel_count': int(dark_pixel_count),
+            'edge_pixel_count': int(edge_pixel_count),
+            'dark_ratio': float(dark_ratio),
+            'edge_width': edge_width,
+            'darkness_threshold': darkness_threshold
+        }
+    
+    def create_dark_edge_preview(self, mask_id: int, edge_width: int = 3, darkness_threshold: int = 100, preview_size: tuple = (200, 200)):
+        """Create a preview image showing dark edge pixels highlighted in blue.
+        
+        Args:
+            mask_id: ID of the mask to preview
+            edge_width: Width of the edge region to analyze
+            darkness_threshold: Pixel intensity threshold for "dark" pixels
+            preview_size: Size of the preview image
+        
+        Returns:
+            Preview image with dark edges highlighted in blue
+        """
+        if self.sam_analyzer is None or mask_id >= len(self.sam_analyzer.masks):
+            return None
+        
+        # Extract dark edge pixels
+        dark_edge_data = self.extract_dark_edge_pixels(mask_id, edge_width, darkness_threshold)
+        if dark_edge_data is None:
+            return None
+        
+        # Get mask bounding box for cropping
+        mask_stats = self.sam_analyzer.mask_statistics[mask_id]
+        x1, y1, w, h = mask_stats['bounding_box']
+        
+        # Add padding
+        padding = 20
+        x1 = max(0, x1 - padding)
+        y1 = max(0, y1 - padding)
+        x2 = min(self.current_image.shape[1], x1 + w + 2 * padding)
+        y2 = min(self.current_image.shape[0], y1 + h + 2 * padding)
+        
+        # Crop the region
+        region = self.current_image[y1:y2, x1:x2].copy()
+        dark_pixels_region = dark_edge_data['dark_pixels_mask'][y1:y2, x1:x2]
+        
+        # Highlight dark pixels in blue
+        region[dark_pixels_region > 0] = [255, 0, 0]  # Blue in BGR
+        
+        # Resize to preview size
+        preview = cv2.resize(region, preview_size)
+        
+        return preview
+    
     def apply_circularity_filter(self, min_circularity: float = 0.0, max_circularity: float = 1.0):
         """Apply circularity filter to filter out masks based on circularity threshold.
         
@@ -1414,13 +1510,34 @@ def get_mask_preview():
     """Get mask preview for hover display at specific coordinates or by mask ID"""
     try:
         data = request.get_json()
+        show_dark_edges = data.get('show_dark_edges', False)
+        edge_width = data.get('edge_width', 3)
+        darkness_threshold = data.get('darkness_threshold', 100)
         
         # Support both coordinate-based and ID-based lookup
         if 'mask_id' in data:
             # Direct mask ID lookup
             mask_id = data.get('mask_id')
-            print(f"🔍 Preview request for mask_id: {mask_id}")
-            preview_base64, mask_info = engine.get_mask_preview_by_id(int(mask_id))
+            print(f"🔍 Preview request for mask_id: {mask_id}, show_dark_edges: {show_dark_edges}")
+            
+            if show_dark_edges:
+                # Use dark edge preview
+                preview_image = engine.create_dark_edge_preview(
+                    int(mask_id), 
+                    int(edge_width), 
+                    int(darkness_threshold)
+                )
+                if preview_image is not None:
+                    preview_base64 = engine.get_image_as_base64(preview_image)
+                    mask_info = engine.sam_analyzer.mask_statistics[int(mask_id)].copy()
+                    mask_info['mask_id'] = int(mask_id)
+                    mask_info['state'] = engine.sam_analyzer.mask_states[int(mask_id)]
+                else:
+                    preview_base64, mask_info = None, None
+            else:
+                # Normal preview
+                preview_base64, mask_info = engine.get_mask_preview_by_id(int(mask_id))
+            
             print(f"   Result: preview={'available' if preview_base64 else 'None'}, mask_info={'available' if mask_info else 'None'}")
         else:
             # Coordinate-based lookup (legacy)
@@ -2332,6 +2449,179 @@ def export_diameter_excel():
             'unit_name': unit_name,
             'conversion_enabled': engine.sam_analyzer.conversion_enabled,
             'content_type': 'text/csv'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_dark_edge_preview', methods=['POST'])
+def get_dark_edge_preview():
+    """Get preview of dark edge pixels for a specific mask"""
+    try:
+        data = request.get_json()
+        mask_id = data.get('mask_id', 0)
+        edge_width = data.get('edge_width', 3)
+        darkness_threshold = data.get('darkness_threshold', 100)
+        
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        if mask_id < 0 or mask_id >= len(engine.sam_analyzer.masks):
+            return jsonify({'success': False, 'error': 'Invalid mask ID'})
+        
+        # Get dark edge data
+        dark_edge_data = engine.extract_dark_edge_pixels(
+            mask_id=int(mask_id),
+            edge_width=int(edge_width),
+            darkness_threshold=int(darkness_threshold)
+        )
+        
+        if dark_edge_data is None:
+            return jsonify({'success': False, 'error': 'Failed to extract dark edge pixels'})
+        
+        # Create preview image
+        preview_image = engine.create_dark_edge_preview(
+            mask_id=int(mask_id),
+            edge_width=int(edge_width),
+            darkness_threshold=int(darkness_threshold)
+        )
+        
+        if preview_image is None:
+            return jsonify({'success': False, 'error': 'Failed to create preview'})
+        
+        # Convert to base64
+        preview_base64 = engine.get_image_as_base64(preview_image)
+        
+        return jsonify({
+            'success': True,
+            'preview_image': preview_base64,
+            'dark_pixel_count': dark_edge_data['dark_pixel_count'],
+            'edge_pixel_count': dark_edge_data['edge_pixel_count'],
+            'dark_ratio': dark_edge_data['dark_ratio'],
+            'edge_width': edge_width,
+            'darkness_threshold': darkness_threshold
+        })
+        
+    except Exception as e:
+        print(f"❌ Error in get_dark_edge_preview: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/apply_dark_edge_filter', methods=['POST'])
+def apply_dark_edge_filter():
+    """Filter masks based on dark edge pixel ratio"""
+    try:
+        data = request.get_json()
+        edge_width = data.get('edge_width', 3)
+        darkness_threshold = data.get('darkness_threshold', 100)
+        min_dark_ratio = data.get('min_dark_ratio', 0.0)
+        max_dark_ratio = data.get('max_dark_ratio', 1.0)
+        
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available for filtering'})
+        
+        print(f"\n{'='*80}")
+        print(f"Applying Dark Edge Filter")
+        print(f"{'='*80}")
+        print(f"   Edge width: {edge_width} pixels")
+        print(f"   Darkness threshold: {darkness_threshold}")
+        print(f"   Dark ratio range: {min_dark_ratio:.3f} - {max_dark_ratio:.3f}")
+        
+        filtered_count = 0
+        kept_count = 0
+        
+        # Process each active mask
+        for i in range(len(engine.sam_analyzer.masks)):
+            mask_state = engine.sam_analyzer.mask_states[i] if i < len(engine.sam_analyzer.mask_states) else 'active'
+            
+            if mask_state == 'active':
+                # Extract dark edge data
+                dark_edge_data = engine.extract_dark_edge_pixels(i, edge_width, darkness_threshold)
+                
+                if dark_edge_data:
+                    dark_ratio = dark_edge_data['dark_ratio']
+                    
+                    # Check if dark ratio is outside acceptable range
+                    if dark_ratio < min_dark_ratio or dark_ratio > max_dark_ratio:
+                        engine.sam_analyzer.mask_states[i] = 'dark_edge_filtered'
+                        filtered_count += 1
+                        print(f"   ❌ Mask {i}: dark_ratio={dark_ratio:.3f} (filtered)")
+                    else:
+                        kept_count += 1
+                        if i < 10:
+                            print(f"   ✅ Mask {i}: dark_ratio={dark_ratio:.3f} (kept)")
+        
+        print(f"\n   Summary:")
+        print(f"     Filtered: {filtered_count} masks")
+        print(f"     Kept: {kept_count} masks")
+        print(f"{'='*80}\n")
+        
+        # Get updated overlay
+        base_image_b64 = engine.get_image_as_base64()
+        
+        # Get filtered mask list
+        filtered_masks = []
+        for i, (mask_stats, mask_state) in enumerate(zip(
+            engine.sam_analyzer.mask_statistics, 
+            engine.sam_analyzer.mask_states
+        )):
+            if mask_state == 'active':
+                mask_info = mask_stats.copy()
+                mask_info['state'] = mask_state
+                filtered_masks.append(mask_info)
+        
+        return jsonify({
+            'success': True,
+            'image': base_image_b64,
+            'masks': filtered_masks,
+            'masks_count': len(filtered_masks),
+            'filtered_count': filtered_count,
+            'kept_count': kept_count,
+            'clear_and_redraw': True,
+            'message': f'Dark edge filter applied! Kept: {kept_count}, Filtered: {filtered_count}'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error in apply_dark_edge_filter: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/reset_dark_edge_filter', methods=['POST'])
+def reset_dark_edge_filter():
+    """Reset dark edge filter"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        # Reset dark edge filter
+        reset_count = 0
+        for i, state in enumerate(engine.sam_analyzer.mask_states):
+            if state == 'dark_edge_filtered':
+                engine.sam_analyzer.mask_states[i] = 'active'
+                reset_count += 1
+        
+        base_image_b64 = engine.get_image_as_base64()
+        
+        # Get all masks
+        all_masks = []
+        for i, (mask_stats, mask_state) in enumerate(zip(
+            engine.sam_analyzer.mask_statistics, 
+            engine.sam_analyzer.mask_states
+        )):
+            mask_info = mask_stats.copy()
+            mask_info['state'] = mask_state
+            all_masks.append(mask_info)
+        
+        return jsonify({
+            'success': True,
+            'image': base_image_b64,
+            'masks': all_masks,
+            'masks_count': len(all_masks),
+            'reset_count': reset_count,
+            'clear_and_redraw': True,
+            'message': f'Dark edge filter reset - {reset_count} masks restored'
         })
         
     except Exception as e:
