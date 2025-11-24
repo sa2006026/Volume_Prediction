@@ -790,6 +790,46 @@
                             </label>
                             <input type="range" id="overlapThresholdSlider" min="0.5" max="1.0" step="0.05" value="0.80" oninput="updateOverlapThresholdDisplay()">
                             <small style="color: #666;">Remove masks with >80% overlap (higher = more strict)</small>
+                            
+                            <div style="margin-top: 10px;">
+                                <label style="font-size: 0.9em; font-weight: normal; display: block; margin-bottom: 5px;">Remove:</label>
+                                <div style="display: flex; gap: 15px;">
+                                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                        <input type="radio" name="overlapRemoveMode" value="larger" checked>
+                                        <span style="font-size: 0.9em;">Larger mask</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                        <input type="radio" name="overlapRemoveMode" value="smaller">
+                                        <span style="font-size: 0.9em;">Smaller mask</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="input-group">
+                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                            <input type="checkbox" id="enableCircularityFilter" style="transform: scale(1.2);" onchange="toggleCircularityFilterControls()">
+                            <span>Circularity Filter</span>
+                        </label>
+                        <div id="circularityFilterControls" style="display: none;">
+                            <label for="minCircularitySlider" style="font-size: 0.9em; font-weight: normal; display: block; margin-bottom: 5px;">
+                                Min Circularity: <span id="minCircularitySliderValue">0.00</span>
+                            </label>
+                            <input type="range" id="minCircularitySlider" min="0" max="1" step="0.05" value="0.00" oninput="updateCircularityDisplay()">
+                            
+                            <label for="maxCircularitySlider" style="font-size: 0.9em; font-weight: normal; display: block; margin-top: 10px; margin-bottom: 5px;">
+                                Max Circularity: <span id="maxCircularitySliderValue">1.00</span>
+                            </label>
+                            <input type="range" id="maxCircularitySlider" min="0" max="1" step="0.05" value="1.00" oninput="updateCircularityDisplay()">
+                            
+                            <small style="color: #666; display: block; margin-top: 8px;">
+                                Filter masks by shape roundness (0=irregular, 1=perfect circle)
+                            </small>
+                            
+                            <div style="background: #e7f3ff; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 0.85em;">
+                                <strong style="color: #007bff;">💡 Tip:</strong> Set min=0.7 to keep only circular objects
+                            </div>
                         </div>
                     </div>
                     
@@ -822,7 +862,7 @@
                             </h4>
                             <p style="margin: 0; color: #666; font-size: 0.9em;">
                                 The overlap filter can be toggled on/off in the main SAM configuration above. 
-                                When enabled, masks with more than the threshold overlap (based on mask area) will be removed, keeping the smaller mask.
+                                When enabled, masks with more than the threshold overlap (based on mask area) will be removed. You can choose to remove either the larger or smaller mask.
                             </p>
                         </div>
                     </div>
@@ -837,6 +877,142 @@
                                 style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%); font-size: 0.8em; padding: 8px 16px;">
                             🔧 Show Advanced Options
                         </button>
+                    </div>
+                </div>
+
+                <!-- Pre-Segmentation Filter Panel -->
+                <div class="control-group" id="preFilterPanel" style="display: none;">
+                    <h3>🎨 Pre-Segmentation Filter</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                        Apply brightness, contrast, and pixel intensity filters <strong>before</strong> running SAM segmentation to improve results.
+                    </p>
+                    
+                    <!-- Brightness Control -->
+                    <div class="input-group">
+                        <label for="preFilterBrightness">Brightness: <span id="preFilterBrightnessValue">0</span></label>
+                        <input type="range" id="preFilterBrightness" min="-100" max="100" value="0" oninput="updatePreFilterBrightnessDisplay()">
+                        <small style="color: #666;">-100 (darkest) to +100 (brightest)</small>
+                    </div>
+                    
+                    <!-- Contrast Control -->
+                    <div class="input-group">
+                        <label for="preFilterContrast">Contrast: <span id="preFilterContrastValue">1.0</span></label>
+                        <input type="range" id="preFilterContrast" min="0.5" max="3.0" step="0.1" value="1.0" oninput="updatePreFilterContrastDisplay()">
+                        <small style="color: #666;">0.5 (low) to 3.0 (high)</small>
+                    </div>
+                    
+                    <!-- Filter Mode Selection -->
+                    <div class="input-group">
+                        <label for="preFilterMode">Filter Mode:</label>
+                        <select id="preFilterMode" onchange="updateFilterModeUI()">
+                            <option value="none">No Pixel Filtering</option>
+                            <option value="remove_below">Remove Dark Pixels (Below Threshold)</option>
+                            <option value="remove_above">Remove Bright Pixels (Above Threshold)</option>
+                            <option value="keep_range">Keep Only Range (Between Thresholds)</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Min Threshold (shows for remove_below and keep_range) -->
+                    <div class="input-group" id="minThresholdGroup" style="display: none;">
+                        <label for="preFilterMinThreshold">Min Threshold: <span id="preFilterMinThresholdValue">50</span></label>
+                        <input type="range" id="preFilterMinThreshold" min="0" max="255" value="50" oninput="updatePreFilterMinThresholdDisplay()">
+                        <small style="color: #666;">Remove/filter pixels below this intensity (0-255)</small>
+                    </div>
+                    
+                    <!-- Max Threshold (shows for remove_above and keep_range) -->
+                    <div class="input-group" id="maxThresholdGroup" style="display: none;">
+                        <label for="preFilterMaxThreshold">Max Threshold: <span id="preFilterMaxThresholdValue">200</span></label>
+                        <input type="range" id="preFilterMaxThreshold" min="0" max="255" value="200" oninput="updatePreFilterMaxThresholdDisplay()">
+                        <small style="color: #666;">Remove/filter pixels above this intensity (0-255)</small>
+                    </div>
+                    
+                    <!-- Filter Buttons -->
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
+                        <button class="btn btn-primary" onclick="applyPreSegmentationFilter()" id="applyPreFilterBtn">
+                            <i class="fas fa-magic"></i> Apply Filter
+                        </button>
+                        <button class="btn" onclick="resetPreSegmentationFilter()" id="resetPreFilterBtn" 
+                                style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%);">
+                            <i class="fas fa-undo"></i> Reset
+                        </button>
+                    </div>
+                    
+                    <!-- Save Filtered Image Button -->
+                    <div style="margin-top: 10px;">
+                        <button class="btn" onclick="saveFilteredImage()" id="saveFilteredImageBtn" 
+                                style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); width: 100%;">
+                            <i class="fas fa-download"></i> Save Filtered Image
+                        </button>
+                    </div>
+                    
+                    <!-- Filter Info/Help -->
+                    <div style="background: #f0f8ff; padding: 12px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #007bff;">
+                        <h4 style="margin: 0 0 8px 0; color: #007bff; font-size: 0.9em;">
+                            <i class="fas fa-info-circle"></i> Filter Tips
+                        </h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #666; font-size: 0.85em; line-height: 1.4;">
+                            <li><strong>Remove Dark:</strong> Eliminate background noise and shadows</li>
+                            <li><strong>Remove Bright:</strong> Eliminate overexposed areas or glare</li>
+                            <li><strong>Keep Range:</strong> Isolate specific intensity ranges</li>
+                            <li><strong>Tip:</strong> Apply filter first, then run SAM segmentation</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Filter Status -->
+                    <div id="preFilterStatus" style="display: none; margin-top: 15px; padding: 10px; background: #d4edda; border-radius: 6px; font-size: 0.85em; color: #155724;">
+                        <i class="fas fa-check-circle"></i> <span id="preFilterStatusText">Filter applied</span>
+                    </div>
+                </div>
+                
+                <!-- ESRGAN Resolution Enhancement Panel -->
+                <div class="control-group" id="esrganPanel" style="display: none;">
+                    <h3>🚀 Resolution Enhancement (ESRGAN)</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                        Enhance image resolution using AI-powered super-resolution upscaling.
+                    </p>
+                    
+                    <!-- Scale Factor Selection -->
+                    <div class="input-group">
+                        <label for="esrganScaleFactor">Enhancement Scale:</label>
+                        <select id="esrganScaleFactor">
+                            <option value="2">2x (Double Resolution)</option>
+                            <option value="4">4x (Quadruple Resolution)</option>
+                        </select>
+                        <small style="color: #666;">Higher scales take longer to process</small>
+                    </div>
+                    
+                    <!-- Enhancement Buttons -->
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 15px;">
+                        <button class="btn btn-primary" onclick="enhanceImageResolution()" id="enhanceResolutionBtn" 
+                                style="flex: 1; background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);">
+                            <i class="fas fa-magic"></i> Enhance Resolution
+                        </button>
+                    </div>
+                    
+                    <!-- Export Enhanced Image Button -->
+                    <div style="margin-top: 10px;">
+                        <button class="btn" onclick="saveEnhancedImage()" id="saveEnhancedImageBtn" 
+                                style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); width: 100%;">
+                            <i class="fas fa-download"></i> Save Enhanced Image
+                        </button>
+                    </div>
+                    
+                    <!-- Enhancement Info -->
+                    <div style="background: #fff3cd; padding: 12px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #ffc107;">
+                        <h4 style="margin: 0 0 8px 0; color: #856404; font-size: 0.9em;">
+                            <i class="fas fa-lightbulb"></i> Enhancement Tips
+                        </h4>
+                        <ul style="margin: 0; padding-left: 20px; color: #666; font-size: 0.85em; line-height: 1.4;">
+                            <li><strong>2x Scale:</strong> Doubles resolution, faster processing</li>
+                            <li><strong>4x Scale:</strong> Quadruples resolution, best quality</li>
+                            <li><strong>Note:</strong> Large images may take longer to process</li>
+                            <li><strong>Best for:</strong> Low-resolution microscopy images</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Enhancement Status -->
+                    <div id="esrganStatus" style="display: none; margin-top: 15px; padding: 10px; background: #d4edda; border-radius: 6px; font-size: 0.85em; color: #155724;">
+                        <i class="fas fa-check-circle"></i> <span id="esrganStatusText">Enhancement completed</span>
                     </div>
                 </div>
                 
@@ -875,7 +1051,7 @@
                     <div class="control-group" id="overlapFilterPanel" style="display: none; margin-top: 20px;">
                         <h3><i class="fas fa-copy"></i> Overlap Filter</h3>
                         <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
-                            Remove duplicate masks by comparing bounding box overlap. When two bounding boxes overlap by more than the threshold, the larger mask is removed.
+                            Remove duplicate masks by comparing mask overlap. When two masks overlap by more than the threshold, you can choose to remove either the larger or smaller mask.
                         </p>
                         
                         <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
@@ -885,7 +1061,22 @@
                                 </label>
                                 <input type="number" id="overlapThreshold" min="0.1" max="1.0" step="0.1" value="0.4" 
                                        style="width: 100%; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px;">
-                                <small style="color: #666;">Minimum bounding box overlap ratio to consider masks as duplicates (0.1-1.0)</small>
+                                <small style="color: #666;">Minimum mask overlap ratio to consider masks as duplicates (0.1-1.0)</small>
+                            </div>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: block; font-weight: 600; margin-bottom: 8px;">Remove:</label>
+                                <div style="display: flex; gap: 20px;">
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                        <input type="radio" name="overlapPanelRemoveMode" value="larger" checked style="transform: scale(1.1);">
+                                        <span>Larger mask</span>
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                        <input type="radio" name="overlapPanelRemoveMode" value="smaller" style="transform: scale(1.1);">
+                                        <span>Smaller mask</span>
+                                    </label>
+                                </div>
+                                <small style="color: #666; display: block; margin-top: 5px;">Choose which mask to remove when duplicates are detected</small>
                             </div>
                             
                             <div style="display: flex; gap: 10px;">
@@ -1000,6 +1191,63 @@
                         
                         <div id="filterResults" style="display: none; background: #e8f5e8; padding: 10px; border-radius: 6px; margin-top: 10px;">
                             <strong>Filter Results:</strong> <span id="filterResultsText"></span>
+                        </div>
+                    </div>
+                    
+                    <!-- Circularity Filter Panel -->
+                    <div class="control-group" id="circularityFilterPanel" style="display: none; margin-top: 20px;">
+                        <h3><i class="fas fa-circle"></i> Circularity Filter</h3>
+                        <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                            Filter masks based on their circularity (shape roundness). Circularity ranges from 0 (irregular) to 1 (perfect circle).
+                        </p>
+                        
+                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px;">
+                                <div>
+                                    <label for="minCircularity" style="display: block; font-weight: 600; margin-bottom: 5px;">
+                                        Min Circularity:
+                                    </label>
+                                    <input type="number" id="minCircularity" min="0" max="1" step="0.01" value="0.0" 
+                                           style="width: 100%; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px;">
+                                    <small style="color: #666;">Minimum circularity (0.0 - 1.0)</small>
+                                </div>
+                                <div>
+                                    <label for="maxCircularity" style="display: block; font-weight: 600; margin-bottom: 5px;">
+                                        Max Circularity:
+                                    </label>
+                                    <input type="number" id="maxCircularity" min="0" max="1" step="0.01" value="1.0" 
+                                           style="width: 100%; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px;">
+                                    <small style="color: #666;">Maximum circularity (0.0 - 1.0)</small>
+                                </div>
+                            </div>
+                            
+                            <div id="circularityStats" style="background: white; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 0.9em;">
+                                <strong>Circularity Statistics:</strong> <span id="circularityStatsText">Click "Get Statistics" to view</span>
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button class="btn" onclick="getCircularityStatistics()" style="font-size: 0.9em; padding: 8px 16px; background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%); color: white;">
+                                    <i class="fas fa-chart-bar"></i> Get Statistics
+                                </button>
+                                <button class="btn" onclick="applyCircularityFilter()" style="font-size: 0.9em; padding: 8px 16px; background: linear-gradient(135deg, #20c997 0%, #17a589 100%); color: white;">
+                                    <i class="fas fa-filter"></i> Apply Filter
+                                </button>
+                                <button class="btn" onclick="resetCircularityFilter()" style="font-size: 0.9em; padding: 8px 16px; background: linear-gradient(135deg, #6c757d 0%, #495057 100%); color: white;">
+                                    <i class="fas fa-undo"></i> Reset Filter
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div id="circularityFilterResults" style="display: none; background: #d1ecf1; padding: 10px; border-radius: 6px; margin-top: 10px; border-left: 4px solid #0c5460;">
+                            <strong style="color: #0c5460;">Circularity Filter Results:</strong> <span id="circularityFilterResultsText"></span>
+                        </div>
+                        
+                        <div style="background: #e7f3ff; padding: 12px; border-radius: 6px; margin-top: 10px; border-left: 4px solid #007bff;">
+                            <strong style="color: #007bff;"><i class="fas fa-info-circle"></i> About Circularity:</strong>
+                            <p style="margin: 5px 0 0 0; color: #666; font-size: 0.85em;">
+                                Circularity = 4π × Area / Perimeter². Perfect circles have circularity = 1.0. 
+                                Lower values indicate more elongated or irregular shapes. Use this to filter out non-circular objects.
+                            </p>
                         </div>
                     </div>
                     
@@ -1391,6 +1639,23 @@
                     document.getElementById('segmentBtn').disabled = false;
                     document.getElementById('welcomeMessage').style.display = 'none';
                     
+                    // Show pre-segmentation filter panel
+                    document.getElementById('preFilterPanel').style.display = 'block';
+                    
+                    // Reset filter controls to default
+                    document.getElementById('preFilterBrightness').value = 0;
+                    document.getElementById('preFilterContrast').value = 1.0;
+                    document.getElementById('preFilterMode').value = 'none';
+                    updatePreFilterBrightnessDisplay();
+                    updatePreFilterContrastDisplay();
+                    updateFilterModeUI();
+                    document.getElementById('preFilterStatus').style.display = 'none';
+                    
+                    // Show ESRGAN enhancement panel
+                    document.getElementById('esrganPanel').style.display = 'block';
+                    document.getElementById('esrganScaleFactor').value = '2';
+                    document.getElementById('esrganStatus').style.display = 'none';
+                    
                     showSuccess(result.message);
                 } else {
                     showError(`Error: ${result.error}`);
@@ -1452,6 +1717,318 @@
                 parseFloat(document.getElementById('overlapThresholdSlider').value).toFixed(2);
         }
 
+        // Pre-Segmentation Filter Display Functions
+        function updatePreFilterBrightnessDisplay() {
+            const value = document.getElementById('preFilterBrightness').value;
+            document.getElementById('preFilterBrightnessValue').textContent = value;
+        }
+
+        function updatePreFilterContrastDisplay() {
+            const value = parseFloat(document.getElementById('preFilterContrast').value).toFixed(1);
+            document.getElementById('preFilterContrastValue').textContent = value;
+        }
+
+        function updatePreFilterMinThresholdDisplay() {
+            const value = document.getElementById('preFilterMinThreshold').value;
+            document.getElementById('preFilterMinThresholdValue').textContent = value;
+        }
+
+        function updatePreFilterMaxThresholdDisplay() {
+            const value = document.getElementById('preFilterMaxThreshold').value;
+            document.getElementById('preFilterMaxThresholdValue').textContent = value;
+        }
+
+        function updateFilterModeUI() {
+            const mode = document.getElementById('preFilterMode').value;
+            const minGroup = document.getElementById('minThresholdGroup');
+            const maxGroup = document.getElementById('maxThresholdGroup');
+            
+            // Show/hide threshold controls based on mode
+            if (mode === 'none') {
+                minGroup.style.display = 'none';
+                maxGroup.style.display = 'none';
+            } else if (mode === 'remove_below') {
+                minGroup.style.display = 'block';
+                maxGroup.style.display = 'none';
+            } else if (mode === 'remove_above') {
+                minGroup.style.display = 'none';
+                maxGroup.style.display = 'block';
+            } else if (mode === 'keep_range') {
+                minGroup.style.display = 'block';
+                maxGroup.style.display = 'block';
+            }
+        }
+
+        // Apply Pre-Segmentation Filter
+        async function applyPreSegmentationFilter() {
+            if (!currentImage) {
+                showAlert('Please upload an image first!', 'error');
+                return;
+            }
+
+            showLoading(true);
+            updateStatus('Applying pre-segmentation filter...');
+
+            const brightness = parseInt(document.getElementById('preFilterBrightness').value);
+            const contrast = parseFloat(document.getElementById('preFilterContrast').value);
+            const mode = document.getElementById('preFilterMode').value;
+            const minThreshold = parseInt(document.getElementById('preFilterMinThreshold').value);
+            const maxThreshold = parseInt(document.getElementById('preFilterMaxThreshold').value);
+
+            try {
+                const response = await fetch('/apply_pre_segmentation_filter', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        brightness: brightness,
+                        contrast: contrast,
+                        min_threshold: mode === 'remove_below' || mode === 'keep_range' ? minThreshold : -1,
+                        max_threshold: mode === 'remove_above' || mode === 'keep_range' ? maxThreshold : -1,
+                        filter_mode: mode === 'none' ? 'remove_below' : mode
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update the displayed image
+                    displayImage(result.filtered_image);
+                    
+                    // Show success status
+                    const statusDiv = document.getElementById('preFilterStatus');
+                    const statusText = document.getElementById('preFilterStatusText');
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.background = '#d4edda';
+                    statusDiv.style.color = '#155724';
+                    statusText.textContent = result.message || 'Filter applied successfully!';
+                    
+                    showAlert('Pre-segmentation filter applied! You can now run SAM segmentation.', 'success');
+                    updateStatus('Filter applied - Ready for segmentation');
+                } else {
+                    showAlert(`Filter failed: ${result.error}`, 'error');
+                    updateStatus('Filter failed');
+                }
+            } catch (error) {
+                console.error('Error applying pre-segmentation filter:', error);
+                showAlert('Error applying filter. Please try again.', 'error');
+                updateStatus('Filter error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Reset Pre-Segmentation Filter
+        async function resetPreSegmentationFilter() {
+            if (!currentImage) {
+                showAlert('No image loaded!', 'error');
+                return;
+            }
+
+            showLoading(true);
+            updateStatus('Resetting to original image...');
+
+            try {
+                const response = await fetch('/reset_pre_segmentation_filter', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update the displayed image
+                    displayImage(result.image);
+                    
+                    // Reset all filter controls to default
+                    document.getElementById('preFilterBrightness').value = 0;
+                    document.getElementById('preFilterContrast').value = 1.0;
+                    document.getElementById('preFilterMode').value = 'none';
+                    document.getElementById('preFilterMinThreshold').value = 50;
+                    document.getElementById('preFilterMaxThreshold').value = 200;
+                    
+                    // Update displays
+                    updatePreFilterBrightnessDisplay();
+                    updatePreFilterContrastDisplay();
+                    updatePreFilterMinThresholdDisplay();
+                    updatePreFilterMaxThresholdDisplay();
+                    updateFilterModeUI();
+                    
+                    // Hide status
+                    document.getElementById('preFilterStatus').style.display = 'none';
+                    
+                    showAlert('Image reset to original state!', 'success');
+                    updateStatus('Image reset - Ready for filtering or segmentation');
+                } else {
+                    showAlert(`Reset failed: ${result.error}`, 'error');
+                    updateStatus('Reset failed');
+                }
+            } catch (error) {
+                console.error('Error resetting filter:', error);
+                showAlert('Error resetting filter. Please try again.', 'error');
+                updateStatus('Reset error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Save Filtered Image (exports full resolution from currentImage, not scaled canvas)
+        function saveFilteredImage() {
+            if (!currentImage) {
+                showAlert('No image loaded!', 'error');
+                return;
+            }
+
+            try {
+                // Use the full-resolution image from currentImage (the Image object)
+                // instead of the scaled-down canvas
+                
+                // Create a temporary canvas with the ACTUAL image dimensions
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                // Set canvas to the natural (full) size of the image
+                tempCanvas.width = currentImage.naturalWidth;
+                tempCanvas.height = currentImage.naturalHeight;
+                
+                // Draw the full-resolution image
+                tempCtx.drawImage(currentImage, 0, 0);
+                
+                // Convert to blob and download
+                tempCanvas.toBlob(function(blob) {
+                    // Create download link
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    
+                    // Generate filename with timestamp
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                    const originalFileName = document.getElementById('fileName').textContent || 'image';
+                    const fileNameWithoutExt = originalFileName.split('.').slice(0, -1).join('.') || originalFileName;
+                    link.download = `${fileNameWithoutExt}_filtered_${timestamp}.png`;
+                    
+                    // Trigger download
+                    link.href = url;
+                    document.body.appendChild(link);
+                    link.click();
+                    
+                    // Cleanup
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    
+                    showAlert(`Filtered image saved successfully! (${tempCanvas.width}×${tempCanvas.height})`, 'success');
+                    updateStatus('Filtered image downloaded at full resolution');
+                }, 'image/png');
+                
+            } catch (error) {
+                console.error('Error saving filtered image:', error);
+                showAlert('Error saving image. Please try again.', 'error');
+            }
+        }
+        
+        // Enhance Image Resolution using ESRGAN
+        async function enhanceImageResolution() {
+            if (!currentImage) {
+                showAlert('Please upload an image first!', 'error');
+                return;
+            }
+
+            showLoading(true);
+            updateStatus('Enhancing image resolution...');
+
+            const scaleFactor = parseInt(document.getElementById('esrganScaleFactor').value);
+
+            try {
+                const response = await fetch('/enhance_image_resolution', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        scale_factor: scaleFactor
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Update the displayed image
+                    displayImage(result.enhanced_image);
+                    
+                    // Show success status
+                    const statusDiv = document.getElementById('esrganStatus');
+                    const statusText = document.getElementById('esrganStatusText');
+                    statusDiv.style.display = 'block';
+                    statusDiv.style.background = '#d4edda';
+                    statusDiv.style.color = '#155724';
+                    statusText.textContent = `Resolution enhanced ${scaleFactor}x! New size: ${result.new_dimensions.width}×${result.new_dimensions.height}`;
+                    
+                    showAlert(`Image resolution enhanced ${scaleFactor}x successfully!`, 'success');
+                    updateStatus(`Enhanced to ${result.new_dimensions.width}×${result.new_dimensions.height}`);
+                } else {
+                    showAlert(`Enhancement failed: ${result.error}`, 'error');
+                    updateStatus('Enhancement failed');
+                }
+            } catch (error) {
+                console.error('Error enhancing image:', error);
+                showAlert('Error enhancing image. Please try again.', 'error');
+                updateStatus('Enhancement error');
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // Save Enhanced Image (exports full resolution from currentImage, not scaled canvas)
+        function saveEnhancedImage() {
+            if (!currentImage) {
+                showAlert('No image loaded!', 'error');
+                return;
+            }
+
+            try {
+                // Use the full-resolution image from currentImage (the Image object)
+                // instead of the scaled-down canvas
+                
+                // Create a temporary canvas with the ACTUAL image dimensions
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+                
+                // Set canvas to the natural (full) size of the image
+                tempCanvas.width = currentImage.naturalWidth;
+                tempCanvas.height = currentImage.naturalHeight;
+                
+                // Draw the full-resolution image
+                tempCtx.drawImage(currentImage, 0, 0);
+                
+                // Convert to blob and download
+                tempCanvas.toBlob(function(blob) {
+                    // Create download link
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    
+                    // Generate filename with timestamp
+                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                    const originalFileName = document.getElementById('fileName').textContent || 'image';
+                    const fileNameWithoutExt = originalFileName.split('.').slice(0, -1).join('.') || originalFileName;
+                    const scaleFactor = document.getElementById('esrganScaleFactor').value;
+                    link.download = `${fileNameWithoutExt}_enhanced_${scaleFactor}x_${timestamp}.png`;
+                    
+                    // Trigger download
+                    link.href = url;
+                    document.body.appendChild(link);
+                    link.click();
+                    
+                    // Cleanup
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(url);
+                    
+                    showAlert(`Enhanced image saved successfully! (${tempCanvas.width}×${tempCanvas.height})`, 'success');
+                    updateStatus('Enhanced image downloaded at full resolution');
+                }, 'image/png');
+                
+            } catch (error) {
+                console.error('Error saving enhanced image:', error);
+                showAlert('Error saving image. Please try again.', 'error');
+            }
+        }
+
         function toggleOverlapFilterControls() {
             const enabled = document.getElementById('enableOverlapFilter').checked;
             const controls = document.getElementById('overlapFilterControls');
@@ -1470,6 +2047,28 @@
             if (enabled) {
                 document.getElementById('overlapThresholdSlider').disabled = false;
             }
+        }
+
+        function toggleCircularityFilterControls() {
+            const enabled = document.getElementById('enableCircularityFilter').checked;
+            const controls = document.getElementById('circularityFilterControls');
+            
+            if (enabled) {
+                controls.style.display = 'block';
+                controls.style.opacity = '1';
+                document.getElementById('minCircularitySlider').disabled = false;
+                document.getElementById('maxCircularitySlider').disabled = false;
+            } else {
+                controls.style.display = 'none';
+            }
+        }
+
+        function updateCircularityDisplay() {
+            const minValue = parseFloat(document.getElementById('minCircularitySlider').value);
+            const maxValue = parseFloat(document.getElementById('maxCircularitySlider').value);
+            
+            document.getElementById('minCircularitySliderValue').textContent = minValue.toFixed(2);
+            document.getElementById('maxCircularitySliderValue').textContent = maxValue.toFixed(2);
         }
 
         // Run SAM segmentation
@@ -1497,6 +2096,12 @@
                 // Get overlap filter parameters from the main SAM configuration
                 const applyOverlapFilter = document.getElementById('enableOverlapFilter').checked;
                 const overlapThreshold = parseFloat(document.getElementById('overlapThresholdSlider').value);
+                const overlapRemoveMode = document.querySelector('input[name="overlapRemoveMode"]:checked').value;
+
+                // Get circularity filter parameters from the main SAM configuration
+                const applyCircularityFilter = document.getElementById('enableCircularityFilter').checked;
+                const minCircularity = parseFloat(document.getElementById('minCircularitySlider').value);
+                const maxCircularity = parseFloat(document.getElementById('maxCircularitySlider').value);
 
                 const requestData = {
                     model_size: modelSize,
@@ -1506,7 +2111,11 @@
                     performance_mode: performanceMode,
                     use_gpu: useGpu,
                     apply_overlap_filter: applyOverlapFilter,
-                    overlap_threshold: overlapThreshold
+                    overlap_threshold: overlapThreshold,
+                    overlap_remove_mode: overlapRemoveMode,
+                    apply_circularity_filter: applyCircularityFilter,
+                    min_circularity: minCircularity,
+                    max_circularity: maxCircularity
                 };
 
                 console.log('🎯 Starting SAM segmentation with config:', requestData);
@@ -1526,7 +2135,7 @@
                         // Filter out overlap-filtered and intensity-filtered masks from frontend display
                         const allMasks = result.masks || [];
                         const filteredMasks = allMasks.filter(mask => 
-                            mask.state !== 'intensity_filtered' && mask.state !== 'overlap_filtered');
+                            mask.state !== 'intensity_filtered' && mask.state !== 'overlap_filtered' && mask.state !== 'circularity_filtered');
                         
                         console.log(`SAM segmentation filtering: ${allMasks.length} total masks -> ${filteredMasks.length} visible masks`);
                         
@@ -1619,7 +2228,22 @@
             document.getElementById('exportCsvBtn').style.display = 'inline-block';
             
             // Show intensity filter panel
-            document.getElementById('intensityFilterPanel').style.display = 'block';
+            const intensityPanel = document.getElementById('intensityFilterPanel');
+            if (intensityPanel) {
+                intensityPanel.style.display = 'block';
+                console.log('✅ Intensity filter panel shown');
+            } else {
+                console.error('❌ Intensity filter panel not found');
+            }
+            
+            // Show circularity filter panel
+            const circularityPanel = document.getElementById('circularityFilterPanel');
+            if (circularityPanel) {
+                circularityPanel.style.display = 'block';
+                console.log('✅ Circularity filter panel shown');
+            } else {
+                console.error('❌ Circularity filter panel not found');
+            }
             
             // Hide overlap filter panel since it's now applied automatically during segmentation
             // document.getElementById('overlapFilterPanel').style.display = 'block';
@@ -1728,8 +2352,8 @@
             `;
         }
         
-        // Update mask preview for frontend-based system
-        function updateMaskPreview(maskIndex) {
+        // Update mask preview for frontend-based system (now using backend preview)
+        async function updateMaskPreview(maskIndex) {
             if (maskIndex < 0 || maskIndex >= masks.length) {
                 clearMaskPreview();
                 return;
@@ -1739,12 +2363,35 @@
             const previewContent = document.getElementById('previewContent');
             const previewInfo = document.getElementById('previewInfo');
             
-            // Create a preview image from the mask region
-            const previewImage = createMaskPreviewImage(mask);
+            console.log(`🔍 updateMaskPreview: maskIndex=${maskIndex}, mask.id=${mask.id}, total masks=${masks.length}`);
             
-            if (previewImage) {
-                previewContent.innerHTML = `<img src="${previewImage}" alt="Mask Preview" class="preview-image" />`;
-            } else {
+            // Use backend to generate proper mask preview (actual mask shape, not just bbox)
+            try {
+                // Use mask ID for direct lookup
+                console.log(`📤 Sending preview request for mask_id: ${mask.id}`);
+                const response = await fetch('/get_mask_preview', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ mask_id: mask.id })
+                });
+                
+                const result = await response.json();
+                console.log(`📥 Preview response:`, result);
+                
+                if (result.success && result.has_mask && result.preview_image) {
+                    console.log(`✅ Preview available, displaying`);
+                    previewContent.innerHTML = `<img src="${result.preview_image}" alt="Mask Preview" class="preview-image" />`;
+                } else {
+                    console.warn(`❌ No preview: success=${result.success}, has_mask=${result.has_mask}`);
+                    previewContent.innerHTML = `
+                        <div class="preview-placeholder">
+                            <i class="fas fa-image"></i>
+                            <p>Preview unavailable</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('❌ Error fetching mask preview:', error);
                 previewContent.innerHTML = `
                     <div class="preview-placeholder">
                         <i class="fas fa-image"></i>
@@ -1804,59 +2451,9 @@
             `;
         }
         
-        // Create mask preview image from canvas
-        function createMaskPreviewImage(mask) {
-            if (!canvas || !currentImage) return null;
-            
-            try {
-                // Create a temporary canvas for the preview
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
-                
-                const [x, y, w, h] = mask.boundingBox;
-                const padding = 20;
-                const previewSize = 200;
-                
-                // Calculate preview region with padding
-                const startX = Math.max(0, x - padding);
-                const startY = Math.max(0, y - padding);
-                const endX = Math.min(currentImage.width, x + w + padding);
-                const endY = Math.min(currentImage.height, y + h + padding);
-                
-                const regionWidth = endX - startX;
-                const regionHeight = endY - startY;
-                
-                if (regionWidth <= 0 || regionHeight <= 0) return null;
-                
-                // Set preview canvas size
-                tempCanvas.width = previewSize;
-                tempCanvas.height = previewSize;
-                
-                // Draw the region with mask overlay
-                tempCtx.drawImage(currentImage, startX, startY, regionWidth, regionHeight, 0, 0, previewSize, previewSize);
-                
-                // Add mask overlay
-                tempCtx.globalAlpha = 0.3;
-                tempCtx.fillStyle = mask.state === 'active' ? '#ff0000' : '#666666';
-                
-                // Scale mask coordinates to preview size
-                const scaleX = previewSize / regionWidth;
-                const scaleY = previewSize / regionHeight;
-                
-                const maskStartX = (x - startX) * scaleX;
-                const maskStartY = (y - startY) * scaleY;
-                const maskWidth = w * scaleX;
-                const maskHeight = h * scaleY;
-                
-                tempCtx.fillRect(maskStartX, maskStartY, maskWidth, maskHeight);
-                tempCtx.globalAlpha = 1.0;
-                
-                return tempCanvas.toDataURL('image/png');
-            } catch (error) {
-                console.warn('Error creating mask preview:', error);
-                return null;
-            }
-        }
+        // Deprecated: createMaskPreviewImage (replaced with backend preview)
+        // Now using backend /get_mask_preview endpoint which shows actual mask shape
+        // instead of just bounding box overlay
         
         // Clear mask preview area
         function clearMaskPreview() {
@@ -2716,6 +3313,143 @@
             }
         }
 
+        // Circularity Filter Functions
+        async function getCircularityStatistics() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/get_circularity_statistics', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const stats = result.statistics;
+                    const statsText = `Min: ${stats.min.toFixed(3)}, Max: ${stats.max.toFixed(3)}, Mean: ${stats.mean.toFixed(3)}, Median: ${stats.median.toFixed(3)} (${stats.count} masks)`;
+                    document.getElementById('circularityStatsText').textContent = statsText;
+                    
+                    // Update input fields with reasonable defaults (e.g., keep masks above mean circularity)
+                    document.getElementById('minCircularity').value = Math.max(0, (stats.mean - stats.std).toFixed(3));
+                    document.getElementById('maxCircularity').value = 1.0;
+                    
+                    showSuccess('Circularity statistics loaded successfully!');
+                } else {
+                    showError(result.error || 'Failed to get circularity statistics');
+                }
+
+            } catch (error) {
+                console.error('Error getting circularity statistics:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function applyCircularityFilter() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            const minCircularity = parseFloat(document.getElementById('minCircularity').value);
+            const maxCircularity = parseFloat(document.getElementById('maxCircularity').value);
+
+            if (minCircularity > maxCircularity) {
+                showError('Minimum circularity cannot be greater than maximum circularity.');
+                return;
+            }
+
+            if (minCircularity < 0 || minCircularity > 1 || maxCircularity < 0 || maxCircularity > 1) {
+                showError('Circularity values must be between 0 and 1.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/apply_circularity_filter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        min_circularity: minCircularity,
+                        max_circularity: maxCircularity
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Display the filtered image
+                    displayImage(result.image);
+                    
+                    // Update masks array to reflect filtering
+                    await refreshMaskDisplay();
+                    
+                    // Show filter results
+                    const filterResults = document.getElementById('circularityFilterResults');
+                    const filterResultsText = document.getElementById('circularityFilterResultsText');
+                    filterResultsText.textContent = `Kept ${result.filter_results.kept_count} masks, filtered out ${result.filter_results.filtered_count} masks (Range: ${minCircularity.toFixed(3)}-${maxCircularity.toFixed(3)})`;
+                    filterResults.style.display = 'block';
+                    
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error || 'Failed to apply circularity filter');
+                }
+
+            } catch (error) {
+                console.error('Error applying circularity filter:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
+        async function resetCircularityFilter() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/reset_circularity_filter', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({})
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Display the reset image
+                    displayImage(result.image);
+                    
+                    // Update masks array to reflect reset
+                    await refreshMaskDisplay();
+                    
+                    // Hide filter results
+                    document.getElementById('circularityFilterResults').style.display = 'none';
+                    
+                    // Reset input fields
+                    document.getElementById('minCircularity').value = 0.0;
+                    document.getElementById('maxCircularity').value = 1.0;
+                    
+                    showSuccess(result.message);
+                } else {
+                    showError(result.error || 'Failed to reset circularity filter');
+                }
+
+            } catch (error) {
+                console.error('Error resetting circularity filter:', error);
+                showError('Network error: ' + error.message);
+            }
+        }
+
         async function applyOverlapFilter() {
             if (!segmentationResults || !segmentationResults.masks) {
                 showError('No segmentation data available. Please run segmentation first.');
@@ -2723,6 +3457,37 @@
             }
 
             const overlapThreshold = document.getElementById('overlapThreshold').value;
+            const removeModeElement = document.querySelector('input[name="overlapPanelRemoveMode"]:checked');
+            const removeMode = removeModeElement ? removeModeElement.value : 'larger';
+
+            // WORKFLOW STEP 1: Frontend captures user selection
+            console.log('═══════════════════════════════════════════════════════════════════════');
+            console.log('WORKFLOW STEP 1: User clicked "Apply Overlap Filter" button');
+            console.log('═══════════════════════════════════════════════════════════════════════');
+            console.log('📋 UI State:');
+            console.log('   Overlap threshold:', overlapThreshold);
+            console.log('   Selected radio button element:', removeModeElement);
+            console.log('   Radio button value:', removeMode);
+            console.log('   Radio button value type:', typeof removeMode);
+            
+            // Check which radio button is actually selected
+            const allRadios = document.querySelectorAll('input[name="overlapPanelRemoveMode"]');
+            console.log('\n📻 All radio buttons status:');
+            allRadios.forEach((radio, index) => {
+                console.log(`   Radio ${index + 1}: value="${radio.value}", checked=${radio.checked}, label="${radio.nextElementSibling ? radio.nextElementSibling.textContent : 'N/A'}"`);
+            });
+            
+            console.log('\n📋 USER INTENT:');
+            if (removeMode === 'smaller') {
+                console.log('   ✓ User selected: "Remove Smaller Mask"');
+                console.log('   ✓ Expected behavior: Remove SMALLER masks, keep LARGER masks');
+            } else if (removeMode === 'larger') {
+                console.log('   ✓ User selected: "Remove Larger Mask"');
+                console.log('   ✓ Expected behavior: Remove LARGER masks, keep SMALLER masks');
+            } else {
+                console.log('   ⚠️  Unknown value:', removeMode);
+            }
+            console.log('═══════════════════════════════════════════════════════════════════════');
 
             if (!overlapThreshold || overlapThreshold < 0.1 || overlapThreshold > 1.0) {
                 showError('Please enter a valid overlap threshold between 0.1 and 1.0');
@@ -2730,14 +3495,18 @@
             }
 
             try {
+                const requestData = {
+                    overlap_threshold: parseFloat(overlapThreshold),
+                    remove_mode: removeMode
+                };
+                console.log('📤 Sending request:', requestData);
+                
                 const response = await fetch('/apply_overlap_filter', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        overlap_threshold: parseFloat(overlapThreshold)
-                    })
+                    body: JSON.stringify(requestData)
                 });
 
                 const result = await response.json();
@@ -2955,7 +3724,7 @@
                     // Filter out filtered masks from frontend display (intensity and overlap filtered)
                     const allMasks = result.masks || [];
                     const filteredMasks = allMasks.filter(mask => 
-                        mask.state !== 'intensity_filtered' && mask.state !== 'overlap_filtered');
+                        mask.state !== 'intensity_filtered' && mask.state !== 'overlap_filtered' && mask.state !== 'circularity_filtered');
                     
                     console.log(`Frontend filtering: ${allMasks.length} total masks -> ${filteredMasks.length} visible masks`);
                     

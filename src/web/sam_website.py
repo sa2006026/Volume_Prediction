@@ -22,6 +22,16 @@ import sys
 from werkzeug.utils import secure_filename
 import tempfile
 
+# Try to import ESRGAN/super-resolution libraries
+try:
+    import torch
+    from torchvision import transforms
+    TORCH_AVAILABLE = True
+    print("✅ PyTorch available for ESRGAN")
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("⚠️ PyTorch not available - ESRGAN will use basic upscaling")
+
 # Add the parent directories to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.sam_analyzer import SAMAnalyzer
@@ -122,9 +132,22 @@ class SAMWebEngine:
         # Check if any masks are in 'overlap_filtered' state
         return any(state == 'overlap_filtered' for state in self.sam_analyzer.mask_states)
     
+    def is_circularity_filter_active(self) -> bool:
+        """Check if circularity filtering is currently active"""
+        if self.sam_analyzer is None or not self.sam_analyzer.mask_states:
+            return False
+        
+        # Check if any masks are in 'circularity_filtered' state
+        return any(state == 'circularity_filtered' for state in self.sam_analyzer.mask_states)
+    
     def is_any_filter_active(self) -> bool:
         """Check if any quality filtering is currently active"""
-        return self.is_intensity_filter_active() or self.is_overlap_filter_active()
+        return self.is_intensity_filter_active() or self.is_overlap_filter_active() or self.is_circularity_filter_active()
+    
+    def is_mask_interaction_allowed(self) -> bool:
+        """Check if mask interactions (clicking to toggle) are allowed in current state"""
+        # Allow interactions if we have masks loaded
+        return self.sam_analyzer is not None and self.sam_analyzer.masks is not None and len(self.sam_analyzer.masks) > 0
     
     def create_clean_filtered_overlay(self):
         """
@@ -145,6 +168,77 @@ class SAMWebEngine:
             alpha=0.3
         )
     
+    def apply_circularity_filter(self, min_circularity: float = 0.0, max_circularity: float = 1.0):
+        """Apply circularity filter to filter out masks based on circularity threshold.
+        
+        Circularity is a measure of how circular a shape is:
+        - 1.0 = perfect circle
+        - Lower values = more elongated/irregular shapes
+        
+        Args:
+            min_circularity: Minimum circularity threshold (0.0 to 1.0)
+            max_circularity: Maximum circularity threshold (0.0 to 1.0)
+        
+        Returns:
+            Dict summary with kept_count and filtered_count.
+        """
+        print(f"\n{'='*80}")
+        print(f"Applying Circularity Filter")
+        print(f"{'='*80}")
+        print(f"   Min circularity: {min_circularity:.3f}")
+        print(f"   Max circularity: {max_circularity:.3f}")
+        
+        if self.sam_analyzer is None or not self.sam_analyzer.masks:
+            return {
+                'success': False,
+                'error': 'No masks available for filtering',
+                'kept_count': 0,
+                'filtered_count': 0
+            }
+        
+        # Ensure mask_states aligns with masks length
+        if not hasattr(self.sam_analyzer, 'mask_states') or not self.sam_analyzer.mask_states:
+            self.sam_analyzer.mask_states = ['active'] * len(self.sam_analyzer.masks)
+        else:
+            # Extend or trim to match
+            if len(self.sam_analyzer.mask_states) < len(self.sam_analyzer.masks):
+                self.sam_analyzer.mask_states += ['active'] * (len(self.sam_analyzer.masks) - len(self.sam_analyzer.mask_states))
+            elif len(self.sam_analyzer.mask_states) > len(self.sam_analyzer.masks):
+                self.sam_analyzer.mask_states = self.sam_analyzer.mask_states[:len(self.sam_analyzer.masks)]
+        
+        filtered_count = 0
+        kept_count = 0
+        
+        # Apply circularity filter to each mask
+        for i, (mask_stats, mask_state) in enumerate(zip(
+            self.sam_analyzer.mask_statistics,
+            self.sam_analyzer.mask_states
+        )):
+            # Only filter masks that are currently active
+            if mask_state == 'active':
+                circularity = mask_stats.get('circularity', 0.0)
+                
+                # Check if circularity is outside the specified range
+                if circularity < min_circularity or circularity > max_circularity:
+                    self.sam_analyzer.mask_states[i] = 'circularity_filtered'
+                    filtered_count += 1
+                    print(f"   ❌ Mask {i}: circularity={circularity:.3f} (filtered)")
+                else:
+                    kept_count += 1
+                    if i < 10:  # Print first 10 for debugging
+                        print(f"   ✅ Mask {i}: circularity={circularity:.3f} (kept)")
+        
+        print(f"\n   Summary:")
+        print(f"     Filtered: {filtered_count} masks")
+        print(f"     Kept: {kept_count} masks")
+        print(f"{'='*80}\n")
+        
+        return {
+            'success': True,
+            'kept_count': kept_count,
+            'filtered_count': filtered_count
+        }
+    
     def apply_mask_overlap_filter(self, overlap_threshold: float = 0.8, remove_mode: str = 'larger'):
         """Apply mask-based overlap filtering instead of bbox-based.
 
@@ -159,6 +253,32 @@ class SAMWebEngine:
         Returns:
             Dict summary with kept_count and removed_count.
         """
+        # WORKFLOW STEP 3: Function receives parameters
+        print(f"\n{'='*80}")
+        print(f"WORKFLOW STEP 3: apply_mask_overlap_filter() function called")
+        print(f"{'='*80}")
+        print(f"   Raw parameters received:")
+        print(f"     overlap_threshold: {overlap_threshold} (type: {type(overlap_threshold)})")
+        print(f"     remove_mode: '{remove_mode}' (type: {type(remove_mode)})")
+        
+        # Normalize remove_mode string (strip whitespace, convert to lowercase)
+        remove_mode_original = remove_mode
+        remove_mode = str(remove_mode).strip().lower()
+        
+        print(f"   After normalization:")
+        print(f"     remove_mode: '{remove_mode}'")
+        if remove_mode != remove_mode_original:
+            print(f"     ⚠️  Changed from: '{remove_mode_original}'")
+        
+        print(f"\n   📋 INTERPRETATION:")
+        if remove_mode == 'smaller':
+            print(f"     Mode is 'smaller' → Will REMOVE SMALLER masks, KEEP LARGER masks")
+        elif remove_mode == 'larger':
+            print(f"     Mode is 'larger' → Will REMOVE LARGER masks, KEEP SMALLER masks")
+        else:
+            print(f"     ⚠️  Unknown mode '{remove_mode}' - will default to 'larger'")
+        print(f"{'='*80}\n")
+        
         if self.sam_analyzer is None or not self.sam_analyzer.masks:
             return {
                 'success': False,
@@ -190,6 +310,16 @@ class SAMWebEngine:
 
         to_remove = set()
         n = len(bin_masks)
+        
+        # WORKFLOW STEP 4: Start comparing masks
+        print(f"\n{'='*80}")
+        print(f"WORKFLOW STEP 4: Comparing all mask pairs for overlaps")
+        print(f"{'='*80}")
+        print(f"   Total masks to compare: {n}")
+        print(f"   Overlap threshold: {overlap_threshold} ({overlap_threshold*100}% of smaller mask)")
+        print(f"   Remove mode: '{remove_mode}'")
+        print(f"{'='*80}\n")
+        
         for i in range(n):
             if states[i] != 'active' or i in to_remove or areas[i] == 0:
                 continue
@@ -209,17 +339,58 @@ class SAMWebEngine:
                     continue
                 ratio = inter / float(base)
                 if ratio >= float(overlap_threshold):
+                    # WORKFLOW STEP 5: Decide which mask to remove
+                    print(f"\n🔍 OVERLAP DETECTED:")
+                    print(f"   Mask {i}: area={ai} pixels")
+                    print(f"   Mask {j}: area={aj} pixels")
+                    print(f"   Overlap ratio: {ratio:.3f} (threshold: {overlap_threshold})")
+                    print(f"   Current mode: '{remove_mode}'")
+                    
+                    # Determine which is larger/smaller
+                    if ai > aj:
+                        larger_mask = f"mask {i} (area={ai})"
+                        smaller_mask = f"mask {j} (area={aj})"
+                    elif aj > ai:
+                        larger_mask = f"mask {j} (area={aj})"
+                        smaller_mask = f"mask {i} (area={ai})"
+                    else:
+                        larger_mask = f"mask {i} and {j} (equal area={ai})"
+                        smaller_mask = larger_mask
+                    
+                    print(f"   → Larger: {larger_mask}")
+                    print(f"   → Smaller: {smaller_mask}")
+                    
                     # Remove mask based on remove_mode
                     if remove_mode == 'smaller':
                         # Remove the smaller mask between i and j
                         # If ai >= aj: j is smaller, remove j
                         # If ai < aj: i is smaller, remove i
                         remove_idx = j if ai >= aj else i
+                        decision = "REMOVING SMALLER MASK"
                     else:  # 'larger' (default)
                         # Remove the larger mask between i and j
                         # If ai >= aj: i is larger, remove i
                         # If ai < aj: j is larger, remove j
                         remove_idx = i if ai >= aj else j
+                        decision = "REMOVING LARGER MASK"
+                    
+                    # Show decision
+                    removed_area = areas[remove_idx]
+                    kept_idx = j if remove_idx == i else i
+                    kept_area = areas[kept_idx]
+                    
+                    print(f"   ✓ DECISION: {decision}")
+                    print(f"   ✓ Removing: mask {remove_idx} (area={removed_area})")
+                    print(f"   ✓ Keeping: mask {kept_idx} (area={kept_area})")
+                    
+                    # Verify the decision is correct
+                    if remove_mode == 'smaller' and removed_area > kept_area:
+                        print(f"   ⚠️⚠️⚠️  ERROR: In 'smaller' mode but removed LARGER mask!")
+                    elif remove_mode == 'larger' and removed_area < kept_area:
+                        print(f"   ⚠️⚠️⚠️  ERROR: In 'larger' mode but removed SMALLER mask!")
+                    else:
+                        print(f"   ✅ Decision is CORRECT")
+                    
                     to_remove.add(remove_idx)
                     
                     # CRITICAL FIX: If current mask i is marked for removal, 
@@ -229,12 +400,37 @@ class SAMWebEngine:
 
         # Apply removals by updating states
         removed_count = 0
+        removed_mask_details = []
         for idx in to_remove:
             if states[idx] == 'active':
                 states[idx] = 'overlap_filtered'
+                removed_mask_details.append({
+                    'mask_id': idx,
+                    'area': areas[idx]
+                })
                 removed_count += 1
 
         kept_count = len([s for s in states if s == 'active'])
+        
+        # WORKFLOW STEP 6: Summary of all actions taken
+        print(f"\n{'='*80}")
+        print(f"WORKFLOW STEP 6: Overlap Filter COMPLETE - Final Summary")
+        print(f"{'='*80}")
+        print(f"   Mode used: '{remove_mode}'")
+        print(f"   Total masks processed: {n}")
+        print(f"   Masks removed: {removed_count}")
+        print(f"   Masks kept: {kept_count}")
+        
+        if removed_mask_details:
+            print(f"\n   📋 Removed masks (showing first 10):")
+            for detail in removed_mask_details[:10]:
+                print(f"      ❌ Mask {detail['mask_id']} (area={detail['area']} pixels)")
+        else:
+            print(f"\n   ℹ️  No masks were removed (no overlaps found above threshold)")
+        
+        print(f"\n   ✅ Filter operation completed successfully")
+        print(f"{'='*80}\n")
+        
         return {
             'success': True,
             'kept_count': kept_count,
@@ -360,8 +556,9 @@ class SAMWebEngine:
         
         return True
     
-    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.8, overlap_remove_mode: str = 'larger'):
-        """Perform SAM segmentation with current parameters and optional overlap filtering"""
+    def perform_sam_segmentation(self, apply_overlap_filter: bool = True, overlap_threshold: float = 0.8, overlap_remove_mode: str = 'larger',
+                                 apply_circularity_filter: bool = False, min_circularity: float = 0.0, max_circularity: float = 1.0):
+        """Perform SAM segmentation with current parameters and optional filtering"""
         if self.sam_analyzer is None:
             raise ValueError("No image loaded")
         
@@ -372,19 +569,25 @@ class SAMWebEngine:
             self.current_points_per_side
         )
         
-        # Perform segmentation with configurable overlap filtering
+        # Perform segmentation WITHOUT automatic overlap filtering
+        # We'll apply our own overlap filter below with correct remove_mode parameter
         mask_stats = self.sam_analyzer.segment_droplets(
             method="sam", 
-            apply_overlap_filter=apply_overlap_filter, 
+            apply_overlap_filter=False,  # 🐛 FIX: Disable old filter that always removes LARGER masks
             overlap_threshold=overlap_threshold
         )
         
         if not mask_stats:
             return None, None, []
         
-        # Apply mask-based overlap filter (overrides any bbox-based logic inside analyzer)
+        # Apply mask-based overlap filter with user's choice (smaller or larger)
+        # This respects the overlap_remove_mode parameter correctly
         if apply_overlap_filter:
             self.apply_mask_overlap_filter(overlap_threshold, overlap_remove_mode)
+        
+        # Apply circularity filter if enabled
+        if apply_circularity_filter:
+            self.apply_circularity_filter(min_circularity, max_circularity)
         
         # Create overlay visualization using clean approach
         overlay_image = self.create_clean_filtered_overlay()
@@ -406,7 +609,7 @@ class SAMWebEngine:
             mask_id = mask_info.get('mask_id', -1)
             if mask_id >= 0 and mask_id < len(self.sam_analyzer.mask_states):
                 mask_state = self.sam_analyzer.mask_states[mask_id]
-                if mask_state in ['intensity_filtered', 'overlap_filtered']:
+                if mask_state in ['intensity_filtered', 'overlap_filtered', 'circularity_filtered']:
                     return None  # Don't return info for filtered masks
         
         return mask_info
@@ -498,7 +701,7 @@ class SAMWebEngine:
                 if self.is_any_filter_active():
                     mask_state = (self.sam_analyzer.mask_states[i] 
                                 if i < len(self.sam_analyzer.mask_states) else 'active')
-                    if mask_state in ['intensity_filtered', 'overlap_filtered']:
+                    if mask_state in ['intensity_filtered', 'overlap_filtered', 'circularity_filtered']:
                         continue  # Skip filtered masks
                 
                 # Create a focused preview showing only this specific blob
@@ -536,7 +739,7 @@ class SAMWebEngine:
         if self.is_any_filter_active():
             mask_state = (self.sam_analyzer.mask_states[mask_id] 
                         if mask_id < len(self.sam_analyzer.mask_states) else 'active')
-            if mask_state in ['intensity_filtered', 'overlap_filtered']:
+            if mask_state in ['intensity_filtered', 'overlap_filtered', 'circularity_filtered']:
                 print(f"   ❌ Mask {mask_id} is filtered out (state: {mask_state})")
                 return None, None  # Skip filtered masks
         
@@ -733,6 +936,66 @@ class SAMWebEngine:
         self.last_adjusted_image = None
         
         return self.current_image
+    
+    def enhance_image_resolution(self, scale_factor: int = 2):
+        """
+        Enhance image resolution using ESRGAN or basic upscaling.
+        
+        Args:
+            scale_factor: Upscaling factor (2 = 2x resolution, 4 = 4x resolution)
+        
+        Returns:
+            Enhanced image with higher resolution
+        """
+        if self.current_image is None:
+            return None
+        
+        print(f"🔍 Enhancing image resolution with scale factor: {scale_factor}x")
+        
+        # Use basic high-quality upscaling (works without external models)
+        # This provides good quality enhancement without requiring ESRGAN models
+        height, width = self.current_image.shape[:2]
+        new_width = width * scale_factor
+        new_height = height * scale_factor
+        
+        # Calculate original brightness for debugging
+        original_mean = np.mean(self.current_image)
+        print(f"   Original size: {width}x{height}, Mean brightness: {original_mean:.2f}")
+        print(f"   Target size: {new_width}x{new_height}")
+        
+        # Use LANCZOS interpolation for high-quality upscaling
+        enhanced_image = cv2.resize(
+            self.current_image, 
+            (new_width, new_height), 
+            interpolation=cv2.INTER_LANCZOS4
+        )
+        
+        # Check brightness after upscaling
+        upscaled_mean = np.mean(enhanced_image)
+        print(f"   After upscaling: Mean brightness: {upscaled_mean:.2f} (change: {upscaled_mean - original_mean:+.2f})")
+        
+        # REMOVED: Aggressive sharpening kernel that was causing darkening
+        # The previous kernel subtracted too much from surrounding pixels, causing darkening
+        # Now using brightness-preserving approach with optional gentle sharpening
+        
+        # Optional: Apply very gentle unsharp mask instead (preserves brightness better)
+        # This uses a Gaussian blur subtraction method which is brightness-neutral
+        blur = cv2.GaussianBlur(enhanced_image, (0, 0), 3)
+        enhanced_image = cv2.addWeighted(enhanced_image, 1.5, blur, -0.5, 0)
+        
+        # Clip values to valid range
+        enhanced_image = np.clip(enhanced_image, 0, 255).astype(np.uint8)
+        
+        # Check final brightness
+        final_mean = np.mean(enhanced_image)
+        print(f"   After sharpening: Mean brightness: {final_mean:.2f} (change: {final_mean - original_mean:+.2f})")
+        print(f"   ✅ Image enhanced to {new_width}x{new_height}")
+        
+        # Update current image with enhanced version
+        self.current_image = enhanced_image.copy()
+        self.last_adjusted_image = enhanced_image.copy()
+        
+        return enhanced_image
     
     def get_active_masks_region(self):
         """Get the combined region of all active masks"""
@@ -953,6 +1216,9 @@ def run_sam_segmentation():
         apply_overlap_filter = data.get('apply_overlap_filter', True)
         overlap_threshold = data.get('overlap_threshold', 0.8)
         overlap_remove_mode = data.get('overlap_remove_mode', 'larger')
+        apply_circularity_filter = data.get('apply_circularity_filter', False)
+        min_circularity = data.get('min_circularity', 0.0)
+        max_circularity = data.get('max_circularity', 1.0)
         
         if engine.current_image is None:
             return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
@@ -969,7 +1235,10 @@ def run_sam_segmentation():
         overlay_image, summary, mask_stats = engine.perform_sam_segmentation(
             apply_overlap_filter=apply_overlap_filter,
             overlap_threshold=overlap_threshold,
-            overlap_remove_mode=overlap_remove_mode
+            overlap_remove_mode=overlap_remove_mode,
+            apply_circularity_filter=apply_circularity_filter,
+            min_circularity=min_circularity,
+            max_circularity=max_circularity
         )
         
         if overlay_image is None:
@@ -984,9 +1253,18 @@ def run_sam_segmentation():
         overlay_base64 = engine.get_image_as_base64()
         
         # Filter masks by state for response so only masks that passed all filters are returned
-        filtered_mask_stats = [s for s in mask_stats if s.get('state', 'active') not in ['intensity_filtered', 'overlap_filtered']]
+        filtered_mask_stats = [s for s in mask_stats if s.get('state', 'active') not in ['intensity_filtered', 'overlap_filtered', 'circularity_filtered']]
         visible_masks_count = len(filtered_mask_stats)
         total_masks_count = len(mask_stats)
+        
+        # Build filter message
+        filters_applied = []
+        if apply_overlap_filter:
+            filters_applied.append(f"overlap")
+        if apply_circularity_filter:
+            filters_applied.append(f"circularity ({min_circularity:.2f}-{max_circularity:.2f})")
+        
+        filter_msg = f" with {', '.join(filters_applied)} filter(s)" if filters_applied else ""
         
         return jsonify({
             'success': True,
@@ -1004,7 +1282,7 @@ def run_sam_segmentation():
                 'performance_mode': performance_mode,
                 'use_gpu': use_gpu
             },
-            'message': f'SAM segmentation completed! Showing {visible_masks_count} masks (of {total_masks_count}) using {backend} backend.'
+            'message': f'SAM segmentation completed{filter_msg}! Showing {visible_masks_count} masks (of {total_masks_count}) using {backend} backend.'
         })
         
     except Exception as e:
@@ -1250,6 +1528,46 @@ def reset_pre_segmentation_filter():
         })
         
     except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/enhance_image_resolution', methods=['POST'])
+def enhance_image_resolution():
+    """Enhance image resolution using ESRGAN or high-quality upscaling"""
+    try:
+        data = request.get_json()
+        scale_factor = data.get('scale_factor', 2)
+        
+        if engine.current_image is None:
+            return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
+        
+        # Validate scale factor
+        if scale_factor not in [2, 4]:
+            return jsonify({'success': False, 'error': 'Scale factor must be 2 or 4'})
+        
+        # Enhance image resolution
+        enhanced_image = engine.enhance_image_resolution(scale_factor=int(scale_factor))
+        
+        if enhanced_image is None:
+            return jsonify({'success': False, 'error': 'Failed to enhance image resolution'})
+        
+        # Convert to base64
+        enhanced_base64 = engine.get_image_as_base64(enhanced_image)
+        
+        return jsonify({
+            'success': True,
+            'enhanced_image': enhanced_base64,
+            'scale_factor': scale_factor,
+            'new_dimensions': {
+                'width': int(enhanced_image.shape[1]),
+                'height': int(enhanced_image.shape[0])
+            },
+            'message': f'Image resolution enhanced {scale_factor}x successfully!'
+        })
+        
+    except Exception as e:
+        print(f"❌ Error enhancing image: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/apply_image_adjustments', methods=['POST'])
@@ -1524,6 +1842,39 @@ def get_intensity_statistics():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/get_circularity_statistics', methods=['POST'])
+def get_circularity_statistics():
+    """Get circularity statistics for all masks"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        # Calculate circularity statistics from mask_statistics
+        circularities = []
+        for mask_stats in engine.sam_analyzer.mask_statistics:
+            circularity = mask_stats.get('circularity', 0.0)
+            circularities.append(circularity)
+        
+        if not circularities:
+            return jsonify({'success': False, 'error': 'No circularity data available'})
+        
+        statistics = {
+            'min': float(np.min(circularities)),
+            'max': float(np.max(circularities)),
+            'mean': float(np.mean(circularities)),
+            'median': float(np.median(circularities)),
+            'std': float(np.std(circularities)),
+            'count': len(circularities)
+        }
+        
+        return jsonify({
+            'success': True,
+            'statistics': statistics
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/debug_mask_states', methods=['GET'])
 def debug_mask_states():
     """Debug endpoint to show current mask states (for troubleshooting)"""
@@ -1576,6 +1927,23 @@ def apply_overlap_filter():
         overlap_threshold = data.get('overlap_threshold', 0.8)
         remove_mode = data.get('remove_mode', 'larger')
         
+        # WORKFLOW STEP 2: Backend endpoint receives request
+        print(f"\n{'#'*80}")
+        print(f"WORKFLOW STEP 2: /apply_overlap_filter endpoint received HTTP request")
+        print(f"{'#'*80}")
+        print(f"   Full request JSON: {data}")
+        print(f"   Extracted values:")
+        print(f"     overlap_threshold: {overlap_threshold}")
+        print(f"     remove_mode: '{remove_mode}'")
+        print(f"\n   📋 USER INTENT:")
+        if remove_mode == 'smaller':
+            print(f"     User clicked: 'Remove Smaller Mask' button")
+            print(f"     Expected behavior: Remove smaller masks from overlapping pairs")
+        elif remove_mode == 'larger':
+            print(f"     User clicked: 'Remove Larger Mask' button")
+            print(f"     Expected behavior: Remove larger masks from overlapping pairs")
+        print(f"{'#'*80}\n")
+        
         if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
             return jsonify({'success': False, 'error': 'No masks available for filtering'})
         
@@ -1626,6 +1994,136 @@ def reset_overlap_filter():
             'success': True,
             'image': overlay_base64,
             'message': 'Overlap filter reset - all duplicate masks are restored'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/apply_circularity_filter', methods=['POST'])
+def apply_circularity_filter():
+    """Apply circularity filter to filter out masks based on circularity threshold"""
+    try:
+        data = request.get_json()
+        min_circularity = data.get('min_circularity', 0.0)
+        max_circularity = data.get('max_circularity', 1.0)
+        
+        print(f"\n{'#'*80}")
+        print(f"/apply_circularity_filter endpoint received HTTP request")
+        print(f"{'#'*80}")
+        print(f"   Min circularity: {min_circularity}")
+        print(f"   Max circularity: {max_circularity}")
+        print(f"{'#'*80}\n")
+        
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available for filtering'})
+        
+        # Apply circularity filter
+        filter_results = engine.apply_circularity_filter(
+            min_circularity=float(min_circularity),
+            max_circularity=float(max_circularity)
+        )
+        
+        if not filter_results['success']:
+            return jsonify(filter_results)
+        
+        # Return base image only to avoid double-drawing; frontend will draw latest boxes
+        base_image_b64 = engine.get_image_as_base64()
+        
+        # Get filtered mask list (only active masks that passed the filter)
+        filtered_masks = []
+        total_masks = len(engine.sam_analyzer.mask_statistics)
+        
+        for i, (mask_stats, mask_state) in enumerate(zip(
+            engine.sam_analyzer.mask_statistics, 
+            engine.sam_analyzer.mask_states
+        )):
+            # Only include masks that are active (not filtered out)
+            if mask_state == 'active':
+                mask_info = mask_stats.copy()
+                mask_info['state'] = mask_state
+                filtered_masks.append(mask_info)
+        
+        # Add unit conversion information if enabled
+        if engine.sam_analyzer and engine.sam_analyzer.conversion_enabled:
+            converted_masks = []
+            for mask in filtered_masks:
+                mask_id = mask.get('mask_id', -1)
+                if mask_id >= 0:
+                    converted_stats = engine.sam_analyzer.get_mask_statistics_with_units(mask_id)
+                    if converted_stats:
+                        mask.update(converted_stats)
+                converted_masks.append(mask)
+            filtered_masks = converted_masks
+        
+        print(f"🔍 Circularity filter applied: {min_circularity:.3f}-{max_circularity:.3f}")
+        print(f"📊 Total masks: {total_masks}, Active: {len(filtered_masks)}, Filtered: {total_masks - len(filtered_masks)}")
+        
+        return jsonify({
+            'success': True,
+            'image': base_image_b64,
+            'filter_results': filter_results,
+            'masks': filtered_masks,
+            'masks_count': len(filtered_masks),
+            'total_masks': total_masks,
+            'filtered_count': filter_results['filtered_count'],
+            'min_circularity': min_circularity,
+            'max_circularity': max_circularity,
+            'clear_and_redraw': True,
+            'message': f'Circularity filter applied! Kept: {filter_results["kept_count"]}, Filtered: {filter_results["filtered_count"]}'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/reset_circularity_filter', methods=['POST'])
+def reset_circularity_filter():
+    """Reset circularity filter to unfiltered state"""
+    try:
+        if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
+            return jsonify({'success': False, 'error': 'No masks available'})
+        
+        # Reset circularity filter by changing 'circularity_filtered' states back to 'active'
+        reset_count = 0
+        for i, state in enumerate(engine.sam_analyzer.mask_states):
+            if state == 'circularity_filtered':
+                engine.sam_analyzer.mask_states[i] = 'active'
+                reset_count += 1
+        
+        # Return base image only; frontend redraws according to current states
+        base_image_b64 = engine.get_image_as_base64()
+        
+        # Get all masks after reset
+        all_masks = []
+        for i, (mask_stats, mask_state) in enumerate(zip(
+            engine.sam_analyzer.mask_statistics, 
+            engine.sam_analyzer.mask_states
+        )):
+            mask_info = mask_stats.copy()
+            mask_info['state'] = mask_state
+            all_masks.append(mask_info)
+        
+        # Add unit conversion information if enabled
+        if engine.sam_analyzer and engine.sam_analyzer.conversion_enabled:
+            converted_masks = []
+            for mask in all_masks:
+                mask_id = mask.get('mask_id', -1)
+                if mask_id >= 0:
+                    converted_stats = engine.sam_analyzer.get_mask_statistics_with_units(mask_id)
+                    if converted_stats:
+                        mask.update(converted_stats)
+                converted_masks.append(mask)
+            all_masks = converted_masks
+        
+        print(f"🔄 Circularity filter reset - {reset_count} masks restored")
+        
+        return jsonify({
+            'success': True,
+            'image': base_image_b64,
+            'masks': all_masks,
+            'masks_count': len(all_masks),
+            'reset_count': reset_count,
+            'clear_and_redraw': True,
+            'message': f'Circularity filter reset - {reset_count} masks restored'
         })
         
     except Exception as e:
@@ -1927,7 +2425,7 @@ if __name__ == '__main__':
     print()
     
     try:
-        app.run(host='127.0.0.1', port=5015, debug=False, use_reloader=False)
+        app.run(host='127.0.0.1', port=5013, debug=False, use_reloader=False)
     except Exception as e:
         print(f"❌ Error starting server: {e}")
         import traceback

@@ -1,0 +1,224 @@
+================================================================================
+PRE-SEGMENTATION FILTER MODES - VISUAL GUIDE
+================================================================================
+
+This guide explains how different filter modes work with pixel intensity filtering.
+
+Pixel Intensity Range: 0 (black) ──────────────────────────────────> 255 (white)
+
+
+================================================================================
+MODE 1: remove_below
+================================================================================
+Remove (blacken) all pixels BELOW min_threshold
+
+Parameters:
+  - min_threshold: 80
+  - max_threshold: -1 (not used)
+  - filter_mode: 'remove_below'
+
+Visual:
+  0 ─────────── 80 ─────────────────────────────────────────────── 255
+  [  REMOVED  ] [            KEPT (original pixels)              ]
+  [  (black)  ]
+
+Result: Only pixels with intensity >= 80 remain visible
+Use Case: Remove dark background noise, shadows, or low-intensity artifacts
+
+
+================================================================================
+MODE 2: remove_above
+================================================================================
+Remove (blacken) all pixels ABOVE max_threshold
+
+Parameters:
+  - min_threshold: -1 (not used)
+  - max_threshold: 200
+  - filter_mode: 'remove_above'
+
+Visual:
+  0 ─────────────────────────────────────────────── 200 ─────────── 255
+  [       KEPT (original pixels)                  ] [   REMOVED   ]
+                                                    [   (black)   ]
+
+Result: Only pixels with intensity <= 200 remain visible
+Use Case: Remove bright overexposed areas, specular highlights, or glare
+
+
+================================================================================
+MODE 3: remove_outside (or keep_range)
+================================================================================
+Remove (blacken) all pixels OUTSIDE the range [min_threshold, max_threshold]
+
+Parameters:
+  - min_threshold: 60
+  - max_threshold: 180
+  - filter_mode: 'remove_outside' or 'keep_range'
+
+Visual:
+  0 ───────── 60 ────────────────────── 180 ───────────────────── 255
+  [ REMOVED ] [  KEPT (original)     ] [       REMOVED         ]
+  [ (black) ]                          [       (black)         ]
+
+Result: Only pixels with intensity in [60, 180] remain visible
+Use Case: Keep specific intensity range, remove both dark and bright extremes
+
+
+================================================================================
+BRIGHTNESS & CONTRAST ADJUSTMENTS
+================================================================================
+
+Brightness: -100 to +100 (applied before filtering)
+  - Negative: Makes image darker (shifts all pixels down)
+  - Positive: Makes image brighter (shifts all pixels up)
+  - Example: brightness=+30 → all pixel values increase by 30
+
+  Visual Effect:
+    Original:    [100, 150, 200]
+    Brightness+30: [130, 180, 230]
+
+Contrast: 0.5 to 3.0 (applied before filtering)
+  - Less than 1.0: Reduces contrast (pixels move toward middle gray 128)
+  - Greater than 1.0: Increases contrast (pixels move away from 128)
+  - Example: contrast=1.5 → spread pixels further from middle gray
+
+  Visual Effect:
+    Original:       [80,  128, 180]
+    Contrast 1.5:   [56,  128, 206]  (farther from 128)
+    Contrast 0.7:   [94,  128, 164]  (closer to 128)
+
+
+================================================================================
+COMMON USE CASES & RECOMMENDED SETTINGS
+================================================================================
+
+Use Case 1: Remove Dark Background Noise
+  brightness: 0
+  contrast: 1.0
+  min_threshold: 50
+  max_threshold: -1
+  filter_mode: 'remove_below'
+  → Removes all pixels darker than 50 intensity
+
+Use Case 2: Remove Bright Overexposure
+  brightness: 0
+  contrast: 1.0
+  min_threshold: -1
+  max_threshold: 200
+  filter_mode: 'remove_above'
+  → Removes all pixels brighter than 200 intensity
+
+Use Case 3: Isolate Mid-Tone Objects
+  brightness: 0
+  contrast: 1.0
+  min_threshold: 80
+  max_threshold: 180
+  filter_mode: 'keep_range'
+  → Keeps only pixels in the mid-tone range [80, 180]
+
+Use Case 4: Enhance Dark Image + Remove Noise
+  brightness: 30
+  contrast: 1.2
+  min_threshold: 70
+  max_threshold: -1
+  filter_mode: 'remove_below'
+  → Brightens image, enhances contrast, then removes dark noise
+
+Use Case 5: High-Contrast Isolation
+  brightness: 0
+  contrast: 1.8
+  min_threshold: 100
+  max_threshold: 200
+  filter_mode: 'keep_range'
+  → Strongly enhances contrast, then isolates specific intensity band
+
+
+================================================================================
+PROCESSING ORDER
+================================================================================
+
+1. Start with Original Image
+   ↓
+2. Apply Brightness Adjustment (add/subtract from all pixels)
+   ↓
+3. Apply Contrast Adjustment (expand/compress around middle gray)
+   ↓
+4. Clip to valid range [0, 255]
+   ↓
+5. Convert to Grayscale (for intensity calculation)
+   ↓
+6. Apply Pixel Filtering (based on filter_mode)
+   ↓
+7. Result: Filtered Image (ready for SAM segmentation)
+
+
+================================================================================
+TECHNICAL DETAILS
+================================================================================
+
+- Filtered pixels are set to BLACK: RGB(0, 0, 0)
+- Intensity calculation: Convert BGR → Grayscale (standard cv2 conversion)
+- Brightness range: [-100, +100] added to pixel values
+- Contrast formula: new_pixel = 128 + contrast * (old_pixel - 128)
+- All values are clipped to [0, 255] after brightness/contrast
+- Threshold comparison uses grayscale intensity values
+- Original image is ALWAYS preserved (non-destructive)
+
+
+================================================================================
+TIPS FOR BEST RESULTS
+================================================================================
+
+✅ Start Conservative: Begin with mild adjustments, then increase
+✅ Preview First: Apply filter and preview before running SAM
+✅ Iterate: Use reset to try different filter combinations
+✅ Analyze Histogram: Check intensity distribution before filtering
+✅ Combine Adjustments: Use brightness/contrast WITH filtering
+✅ Test Thresholds: Try different min/max values to find optimal range
+✅ Consider Objects: Choose thresholds based on your target objects' intensity
+
+
+================================================================================
+EXAMPLES WITH ACTUAL VALUES
+================================================================================
+
+Example A: Cell Detection (Dark background, bright cells)
+  Settings: min_threshold=80, filter_mode='remove_below'
+  Before:   Background=10-50, Cells=100-200, Noise=30-70
+  After:    Background=0 (black), Cells=100-200, Noise=0 (black)
+  Result:   Only cells remain visible for SAM segmentation
+
+Example B: Droplet Detection (Bright background, dark droplets)
+  Settings: max_threshold=150, filter_mode='remove_above'
+  Before:   Background=180-240, Droplets=60-140, Noise=160-200
+  After:    Background=0 (black), Droplets=60-140, Noise=0 (black)
+  Result:   Only droplets remain visible
+
+Example C: Fluorescence Microscopy (Specific signal range)
+  Settings: min_threshold=90, max_threshold=210, filter_mode='keep_range'
+  Before:   Background=10-70, Signal=100-200, Artifacts=220-250
+  After:    Background=0, Signal=100-200, Artifacts=0
+  Result:   Only fluorescence signal in target range remains
+
+
+================================================================================
+ERROR PREVENTION
+================================================================================
+
+❌ DON'T set min_threshold > max_threshold
+   → This will filter out ALL pixels!
+
+❌ DON'T use extreme brightness (< -80 or > +80) without testing
+   → May clip too many pixels to 0 or 255
+
+❌ DON'T use extreme contrast (> 2.5) without testing
+   → May create harsh black/white image
+
+✅ DO test on a small region first
+✅ DO use reset if results are unexpected
+✅ DO check the preview before running SAM
+✅ DO save good parameter combinations for reuse
+
+
+================================================================================
+

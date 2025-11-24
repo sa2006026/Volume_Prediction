@@ -1,0 +1,174 @@
+================================================================================
+QUICK START - Pre-Segmentation Filter UI
+================================================================================
+
+🚀 GET STARTED IN 30 SECONDS!
+
+================================================================================
+STEP 1: START SERVER
+================================================================================
+
+Open terminal and run:
+
+    cd /data3/megan_data/Jimmy/Volume_Prediction
+    python src/web/sam_website.py
+
+Server starts at: http://127.0.0.1:5015
+
+================================================================================
+STEP 2: OPEN WEB INTERFACE
+================================================================================
+
+Open browser and navigate to:
+
+    http://127.0.0.1:5015
+
+You'll see the SAM Interactive Segmentation interface.
+
+================================================================================
+STEP 3: UPLOAD IMAGE
+================================================================================
+
+Click "Browse Files" or drag & drop an image.
+
+Result: 
+   ✅ Image displayed
+   ✅ NEW "Pre-Segmentation Filter" panel appears!
+
+================================================================================
+STEP 4: APPLY PRE-FILTER (OPTIONAL)
+================================================================================
+
+The new panel has these controls:
+
+   Brightness:      [slider]  -100 to +100  (default: 0)
+   Contrast:        [slider]   0.5 to 3.0   (default: 1.0)
+   Filter Mode:     [dropdown] 4 options    (default: No Filtering)
+   Min Threshold:   [slider]   0 to 255     (conditional)
+   Max Threshold:   [slider]   0 to 255     (conditional)
+
+Quick Examples:
+
+   A) Remove Dark Background:
+      - Filter Mode: "Remove Dark Pixels (Below Threshold)"
+      - Min Threshold: 50
+      - Click "Apply Filter"
+
+   B) Brighten Image:
+      - Brightness: +30
+      - Contrast: 1.2
+      - Click "Apply Filter"
+
+   C) Keep Specific Range:
+      - Filter Mode: "Keep Only Range"
+      - Min: 60, Max: 180
+      - Click "Apply Filter"
+
+================================================================================
+STEP 5: RUN SAM SEGMENTATION
+================================================================================
+
+After filtering (or skip filtering):
+
+   1. Configure SAM parameters (Model Size, Points per Side, etc.)
+   2. Click "🎯 Run SAM Segmentation"
+   3. Wait 30-60 seconds
+   4. View results!
+
+================================================================================
+STEP 6: ITERATE (OPTIONAL)
+================================================================================
+
+Not happy with results?
+
+   1. Click "Reset" in Pre-Filter panel
+   2. Try different filter settings
+   3. Apply and run SAM again
+
+================================================================================
+THAT'S IT! 🎉
+================================================================================
+
+You now have a complete workflow:
+
+   Upload → Pre-Filter → SAM Segment → Export Results
+            ↑________ Reset _________↓
+
+================================================================================
+COMMON RECIPES
+================================================================================
+
+Recipe 1: CELL DETECTION (Dark background)
+   - Upload: cell_image.jpg
+   - Filter Mode: "Remove Dark Pixels"
+   - Min Threshold: 50
+   - Apply → Run SAM
+
+Recipe 2: DROPLET DETECTION (Bright background)
+   - Upload: droplet_image.jpg
+   - Brightness: -20
+   - Filter Mode: "Keep Only Range"
+   - Min: 50, Max: 150
+   - Apply → Run SAM
+
+Recipe 3: LOW CONTRAST IMAGE
+   - Upload: dim_image.jpg
+   - Brightness: +30
+   - Contrast: 1.5
+   - Apply → Run SAM
+
+Recipe 4: FLUORESCENCE MICROSCOPY
+   - Upload: fluor_image.jpg
+   - Filter Mode: "Keep Only Range"
+   - Min: 80, Max: 200
+   - Apply → Run SAM
+
+================================================================================
+KEYBOARD TIPS
+================================================================================
+
+While using the interface:
+   - Tab: Navigate between controls
+   - Arrow Keys: Adjust focused slider
+   - Enter: Trigger focused button
+   - Esc: Clear hover preview (planned)
+
+================================================================================
+WHAT IF SOMETHING GOES WRONG?
+================================================================================
+
+Issue: Panel doesn't appear
+   → Make sure image uploaded successfully (check green checkmark)
+
+Issue: Filter has no effect
+   → Check your threshold values aren't too extreme
+   → Try clicking "Reset" and start over
+
+Issue: Image turns black
+   → Thresholds too strict! Click "Reset"
+   → Use more lenient values (wider range)
+
+Issue: Can't run SAM
+   → Make sure SAM configuration is set
+   → Check that "Run SAM Segmentation" button is enabled
+
+================================================================================
+DOCUMENTATION
+================================================================================
+
+For more details, see:
+   📄 FRONTEND_USAGE_GUIDE.md       - Complete UI guide
+   📄 PRE_SEGMENTATION_FILTER_API.md - API documentation
+   📄 FILTER_MODES_VISUAL_GUIDE.txt  - Visual explanation
+   📄 QUICK_REFERENCE.txt            - Quick reference
+
+================================================================================
+ENJOY! 🤖✨
+================================================================================
+
+You're now ready to use the Pre-Segmentation Filter!
+
+Clean up your images before segmentation for MUCH better results! 🎯
+
+================================================================================
+

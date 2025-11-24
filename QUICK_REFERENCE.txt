@@ -1,0 +1,200 @@
+================================================================================
+PRE-SEGMENTATION FILTER - QUICK REFERENCE CARD
+================================================================================
+
+API ENDPOINT:
+  POST http://127.0.0.1:5015/apply_pre_segmentation_filter
+
+REQUEST BODY:
+  {
+    "brightness": 0,              // -100 to +100 (default: 0)
+    "contrast": 1.0,              // 0.5 to 3.0 (default: 1.0)
+    "min_threshold": -1,          // 0-255 or -1=off (default: -1)
+    "max_threshold": -1,          // 0-255 or -1=off (default: -1)
+    "filter_mode": "remove_below" // See modes below
+  }
+
+FILTER MODES:
+  "remove_below"   → Remove pixels below min_threshold
+  "remove_above"   → Remove pixels above max_threshold
+  "remove_outside" → Remove pixels outside [min, max] range
+  "keep_range"     → Same as remove_outside
+
+RESET ENDPOINT:
+  POST http://127.0.0.1:5015/reset_pre_segmentation_filter
+  Body: {}
+
+--------------------------------------------------------------------------------
+QUICK EXAMPLES
+--------------------------------------------------------------------------------
+
+Remove dark background:
+  {"min_threshold": 50, "filter_mode": "remove_below"}
+
+Remove bright spots:
+  {"max_threshold": 200, "filter_mode": "remove_above"}
+
+Keep mid-range:
+  {"min_threshold": 60, "max_threshold": 180, "filter_mode": "keep_range"}
+
+Brighten + remove dark:
+  {"brightness": 30, "min_threshold": 70, "filter_mode": "remove_below"}
+
+Enhance contrast + filter:
+  {"contrast": 1.5, "min_threshold": 80, "max_threshold": 200, "filter_mode": "keep_range"}
+
+--------------------------------------------------------------------------------
+PYTHON QUICK START
+--------------------------------------------------------------------------------
+
+import requests
+
+# 1. Upload image
+with open('image.jpg', 'rb') as f:
+    requests.post('http://127.0.0.1:5015/upload_image', files={'image': f})
+
+# 2. Apply filter
+requests.post('http://127.0.0.1:5015/apply_pre_segmentation_filter',
+    json={'min_threshold': 50, 'filter_mode': 'remove_below'})
+
+# 3. Run SAM
+requests.post('http://127.0.0.1:5015/run_sam_segmentation',
+    json={'model_size': 'vit_b', 'points_per_side': 32})
+
+# 4. Reset (optional)
+requests.post('http://127.0.0.1:5015/reset_pre_segmentation_filter', json={})
+
+--------------------------------------------------------------------------------
+JAVASCRIPT QUICK START
+--------------------------------------------------------------------------------
+
+// Apply filter
+fetch('/apply_pre_segmentation_filter', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({
+    brightness: 0,
+    contrast: 1.0,
+    min_threshold: 50,
+    max_threshold: -1,
+    filter_mode: 'remove_below'
+  })
+}).then(r => r.json()).then(data => {
+  console.log(data.message);
+  // data.filtered_image contains base64 image
+});
+
+// Reset
+fetch('/reset_pre_segmentation_filter', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({})
+});
+
+--------------------------------------------------------------------------------
+COMMAND LINE EXAMPLES
+--------------------------------------------------------------------------------
+
+# Run example 1: Remove dark background
+python example_pre_segmentation_filter.py image.jpg 1
+
+# Run example 3: Keep intensity range
+python example_pre_segmentation_filter.py image.jpg 3
+
+# Run example 6: Multiple filters workflow
+python example_pre_segmentation_filter.py image.jpg 6
+
+--------------------------------------------------------------------------------
+PARAMETER RANGES
+--------------------------------------------------------------------------------
+
+brightness:      -100 (darkest) ←→ 0 (no change) ←→ +100 (brightest)
+contrast:         0.5 (low)      ←→ 1.0 (normal)  ←→ 3.0 (high)
+min_threshold:    0 (black)      ←→ 128 (gray)    ←→ 255 (white), or -1 (off)
+max_threshold:    0 (black)      ←→ 128 (gray)    ←→ 255 (white), or -1 (off)
+
+--------------------------------------------------------------------------------
+WORKFLOW
+--------------------------------------------------------------------------------
+
+Upload → Filter → Preview → SAM Segmentation → Export
+         ↑______ Reset ______↓
+
+1. Upload image via /upload_image
+2. Apply filter via /apply_pre_segmentation_filter
+3. Preview filtered image (returned in response)
+4. Run SAM via /run_sam_segmentation (uses filtered image)
+5. (Optional) Reset via /reset_pre_segmentation_filter
+
+--------------------------------------------------------------------------------
+RESPONSE FORMAT
+--------------------------------------------------------------------------------
+
+Success Response:
+{
+  "success": true,
+  "filtered_image": "data:image/png;base64,...",
+  "parameters": {...},
+  "message": "Pre-segmentation filter applied successfully..."
+}
+
+Error Response:
+{
+  "success": false,
+  "error": "Error message here"
+}
+
+--------------------------------------------------------------------------------
+COMMON USE CASES
+--------------------------------------------------------------------------------
+
+✓ Remove dark background noise    → remove_below with min=30-80
+✓ Remove bright overexposure       → remove_above with max=180-220
+✓ Isolate specific intensity range → keep_range with min=60, max=180
+✓ Enhance dark images              → brightness=+20-50, contrast=1.2-1.5
+✓ Clean noisy images               → remove_below or keep_range
+✓ Prepare for cell/droplet detect  → Combine brightness + filter
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING
+--------------------------------------------------------------------------------
+
+Problem: All pixels removed (black image)
+  → Check: min_threshold > max_threshold?
+  → Fix: Swap values or use correct filter_mode
+
+Problem: No visible effect
+  → Check: Thresholds outside actual intensity range?
+  → Fix: Adjust thresholds to match your image's intensity
+
+Problem: Too much removed
+  → Check: Thresholds too aggressive?
+  → Fix: Use more conservative values (wider range)
+
+Problem: Not enough removed
+  → Check: Thresholds too lenient?
+  → Fix: Tighten the range or use stronger brightness/contrast
+
+--------------------------------------------------------------------------------
+TIPS
+--------------------------------------------------------------------------------
+
+✅ Start with small adjustments
+✅ Use reset to try different approaches
+✅ Preview before running SAM
+✅ Combine brightness/contrast with filtering
+✅ Keep original image - it's always preserved
+✅ Test different thresholds to find optimal values
+
+--------------------------------------------------------------------------------
+DOCUMENTATION FILES
+--------------------------------------------------------------------------------
+
+PRE_SEGMENTATION_FILTER_API.md    → Complete API docs
+example_pre_segmentation_filter.py → Python examples
+FILTER_MODES_VISUAL_GUIDE.txt     → Visual explanation
+CHANGES_SUMMARY.md                 → What changed
+QUICK_REFERENCE.txt                → This file
+
+================================================================================
+

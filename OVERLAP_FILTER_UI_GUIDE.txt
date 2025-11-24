@@ -1,0 +1,149 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                 OVERLAP FILTER - USER INTERFACE GUIDE                        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ LOCATION 1: Main SAM Configuration Panel (Before Segmentation)              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+    ┌─────────────────────────────────────────────────┐
+    │ ☑ Overlap Filter                                │
+    │                                                  │
+    │   Threshold: 0.80                                │
+    │   [========●========================] 0.5 - 1.0  │
+    │   Remove masks with >80% overlap                 │
+    │                                                  │
+    │   Remove:                                        │
+    │   ⦿ Larger mask    ○ Smaller mask               │
+    │                                                  │
+    └─────────────────────────────────────────────────┘
+
+    → This setting is applied during initial SAM segmentation
+    → Default: "Larger mask" (keeps smaller, more precise masks)
+
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ LOCATION 2: Overlap Filter Panel (After Segmentation)                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │ 📋 Overlap Filter                                                   │
+    │                                                                     │
+    │ Remove duplicate masks by comparing mask overlap. When two masks   │
+    │ overlap by more than the threshold, you can choose to remove       │
+    │ either the larger or smaller mask.                                 │
+    │                                                                     │
+    │ ┌───────────────────────────────────────────────────────────────┐ │
+    │ │ Overlap Threshold:                                            │ │
+    │ │ [0.4                                          ] (0.1 - 1.0)   │ │
+    │ │ Minimum mask overlap ratio to consider masks as duplicates    │ │
+    │ │                                                               │ │
+    │ │ Remove:                                                       │ │
+    │ │   ⦿ Larger mask        ○ Smaller mask                        │ │
+    │ │   Choose which mask to remove when duplicates are detected    │ │
+    │ │                                                               │ │
+    │ │ [🔍 Apply Overlap Filter]  [↶ Reset Filter]                 │ │
+    │ └───────────────────────────────────────────────────────────────┘ │
+    └─────────────────────────────────────────────────────────────────────┘
+
+    → Allows re-applying the filter with different settings
+    → Can experiment with different removal strategies
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           REMOVAL MODE COMPARISON                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌──────────────────────────────┬──────────────────────────────────────────────┐
+│  Remove LARGER Mask          │  Remove SMALLER Mask                         │
+│  (Default)                   │  (Alternative)                               │
+├──────────────────────────────┼──────────────────────────────────────────────┤
+│                              │                                              │
+│  Before:                     │  Before:                                     │
+│  ┌─────────────────┐         │  ┌─────────────────┐                        │
+│  │ ┌─────────┐     │         │  │ ┌─────────┐     │                        │
+│  │ │   🔵    │     │         │  │ │   🔵    │     │                        │
+│  │ │ (small) │     │         │  │ │ (small) │     │                        │
+│  │ └─────────┘ 🔴  │         │  │ └─────────┘ 🔴  │                        │
+│  │    (large)      │         │  │    (large)      │                        │
+│  └─────────────────┘         │  └─────────────────┘                        │
+│        (overlap)              │        (overlap)                            │
+│                              │                                              │
+│  After: KEEPS BLUE (small)   │  After: KEEPS RED (large)                   │
+│  ┌─────────────────┐         │  ┌─────────────────┐                        │
+│  │ ┌─────────┐     │         │  │                 │                        │
+│  │ │   🔵    │     │         │  │       🔴        │                        │
+│  │ │ (kept)  │     │         │  │     (kept)      │                        │
+│  │ └─────────┘     │         │  │                 │                        │
+│  │                 │         │  │                 │                        │
+│  └─────────────────┘         │  └─────────────────┘                        │
+│                              │                                              │
+├──────────────────────────────┼──────────────────────────────────────────────┤
+│ 👍 BEST FOR:                 │ 👍 BEST FOR:                                 │
+│  • Preserving fine details   │  • When larger masks are more accurate      │
+│  • Small droplet detection   │  • Removing noise/fragments                 │
+│  • High-precision work       │  • Keeping complete objects                 │
+│                              │                                              │
+│ ⚠️ WATCH OUT FOR:            │ ⚠️ WATCH OUT FOR:                           │
+│  • May keep noise           │  • May lose fine details                    │
+│  • Small spurious masks     │  • Less precise boundaries                  │
+└──────────────────────────────┴──────────────────────────────────────────────┘
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          QUICK START GUIDE                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1️⃣  Upload your image
+
+2️⃣  In SAM Configuration:
+    • Enable "Overlap Filter" checkbox
+    • Set threshold (e.g., 0.80 for 80% overlap)
+    • Choose removal mode:
+      → "Larger mask" if you want precise, smaller masks
+      → "Smaller mask" if larger masks are more accurate
+
+3️⃣  Click "Run SAM Segmentation"
+
+4️⃣  Review results
+
+5️⃣  (Optional) Re-apply with different settings:
+    • Open "Overlap Filter" panel
+    • Change threshold or removal mode
+    • Click "Apply Overlap Filter"
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        EXAMPLE SCENARIOS                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+SCENARIO 1: Microscopy Droplet Detection
+────────────────────────────────────────
+Problem: SAM creates both tight droplet masks AND larger, fuzzy masks
+Solution: ✅ Remove LARGER mask (default)
+Result: Keeps precise droplet boundaries
+
+SCENARIO 2: Cell Segmentation with Fragments  
+────────────────────────────────────────────────
+Problem: SAM creates full cell masks AND small fragment masks inside
+Solution: ✅ Remove SMALLER mask
+Result: Keeps complete cell structures, removes internal fragments
+
+SCENARIO 3: Object Detection with Nested Masks
+───────────────────────────────────────────────
+Problem: Both inner and outer contours detected, need to decide
+Solution: 🤔 Try BOTH modes and compare
+Result: Choose based on your analysis needs
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                            TIPS & TRICKS                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+💡 Start with default settings (0.80 threshold, remove larger)
+💡 Use the Overlap Filter Panel to experiment without re-running full segmentation
+💡 Higher threshold = more strict (only removes very overlapping masks)
+💡 Lower threshold = more aggressive (removes masks with less overlap)
+💡 Check the "Overlap Filter Results" message to see how many masks were removed
+💡 Use "Reset Filter" to restore all masks and try different settings
+
