@@ -168,48 +168,77 @@ class SAMWebEngine:
             alpha=0.3
         )
     
-    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 3, darkness_threshold: int = 100):
-        """Extract dark pixels around the edge/contour of a specific mask.
+    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 20, darkness_threshold: int = 180):
+        """Extract dark pixels around the edge/contour of a specific mask and compute statistics including ring width."""
+        print(f"🔍 extract_dark_edge_pixels called: mask_id={mask_id}, edge_width={edge_width}, darkness_threshold={darkness_threshold}")
         
-        Args:
-            mask_id: ID of the mask to process
-            edge_width: Width of the edge region to analyze (in pixels)
-            darkness_threshold: Pixel intensity threshold (0-255). Pixels below this are considered "dark"
-        
-        Returns:
-            Dictionary with dark pixel mask and statistics
-        """
         if self.sam_analyzer is None or mask_id >= len(self.sam_analyzer.masks):
             return None
-        
         mask = self.sam_analyzer.masks[mask_id]
-        
-        # Get the binary mask
         binary_mask = (mask > 0).astype(np.uint8)
-        
-        # Find contour of the mask
         contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        
         if not contours:
             return None
-        
-        # Create an edge region mask (dilate - erode to get edge band)
         kernel = np.ones((edge_width, edge_width), np.uint8)
         dilated = cv2.dilate(binary_mask, kernel, iterations=1)
         eroded = cv2.erode(binary_mask, kernel, iterations=1)
         edge_region = dilated - eroded
         
-        # Convert image to grayscale for intensity analysis
+        # IMPORTANT FIX: Exclude pixels that belong to OTHER masks
+        # This prevents the dark edge from extending into neighboring masks
+        other_masks_combined = np.zeros_like(binary_mask, dtype=np.uint8)
+        for i, other_mask in enumerate(self.sam_analyzer.masks):
+            if i != mask_id:  # Skip the current mask
+                other_masks_combined = np.maximum(other_masks_combined, (other_mask > 0).astype(np.uint8))
+        
+        # Remove edge pixels that overlap with other masks
+        edge_region_cleaned = edge_region.copy()
+        edge_region_cleaned[other_masks_combined > 0] = 0
+        
         gray_image = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2GRAY)
-        
-        # Find dark pixels in the edge region
         dark_pixels_mask = np.zeros_like(gray_image, dtype=np.uint8)
-        dark_pixels_mask[(edge_region > 0) & (gray_image < darkness_threshold)] = 255
+        # Use cleaned edge region that doesn't overlap with other masks
+        dark_pixels_mask[(edge_region_cleaned > 0) & (gray_image < darkness_threshold)] = 255
         
-        # Count dark pixels
+        # Debug logging
+        edge_region_count = np.count_nonzero(edge_region_cleaned)
+        dark_candidates = np.count_nonzero(gray_image[edge_region_cleaned > 0] < darkness_threshold)
+        overlap_removed = np.count_nonzero(edge_region) - edge_region_count
+        print(f"   📊 Edge region pixels: {edge_region_count} (removed {overlap_removed} overlapping with other masks)")
+        print(f"   📊 Dark pixels found (< {darkness_threshold}): {dark_candidates}")
+        # Count dark/edge pixels and ratio
         dark_pixel_count = np.count_nonzero(dark_pixels_mask)
-        edge_pixel_count = np.count_nonzero(edge_region)
+        edge_pixel_count = np.count_nonzero(edge_region_cleaned)
         dark_ratio = dark_pixel_count / edge_pixel_count if edge_pixel_count > 0 else 0
+        # Calculate diameter and ring width
+        # Mask center
+        mask_stats = self.sam_analyzer.mask_statistics[mask_id]
+        center_x, center_y = mask_stats['center_x'], mask_stats['center_y']
+        
+        # Calculate dark edge diameter using contour-based circle fitting for accuracy
+        # This method fits a minimum enclosing circle to the dark edge pixels
+        ys, xs = np.where(dark_pixels_mask > 0)
+        if len(xs) == 0:
+            dark_edge_radius = 0
+            dark_edge_diameter = 0
+            dark_edge_center = (center_x, center_y)
+        else:
+            # Create contour points from dark edge pixels
+            dark_edge_points = np.column_stack((xs, ys)).astype(np.float32)
+            
+            # Use OpenCV's minEnclosingCircle to find the best-fit circle
+            # This is more robust than max distance as it considers all points
+            (circle_x, circle_y), circle_radius = cv2.minEnclosingCircle(dark_edge_points)
+            
+            dark_edge_radius = float(circle_radius)
+            dark_edge_diameter = dark_edge_radius * 2
+            dark_edge_center = (float(circle_x), float(circle_y))
+        
+        # Get mask diameter from mask_stats
+        mask_diameter = mask_stats.get('diameter', 0)
+        
+        # Calculate ring width as difference between dark edge diameter and mask diameter
+        ring_width = dark_edge_diameter - mask_diameter
         
         return {
             'mask_id': mask_id,
@@ -218,11 +247,16 @@ class SAMWebEngine:
             'edge_pixel_count': int(edge_pixel_count),
             'dark_ratio': float(dark_ratio),
             'edge_width': edge_width,
-            'darkness_threshold': darkness_threshold
+            'darkness_threshold': darkness_threshold,
+            'dark_edge_diameter': float(dark_edge_diameter),
+            'dark_edge_radius': float(dark_edge_radius),
+            'dark_edge_center': dark_edge_center,
+            'mask_diameter': float(mask_diameter),
+            'ring_width': float(ring_width)
         }
     
-    def create_dark_edge_preview(self, mask_id: int, edge_width: int = 3, darkness_threshold: int = 100, preview_size: tuple = (200, 200)):
-        """Create a preview image showing dark edge pixels highlighted in blue.
+    def create_dark_edge_preview(self, mask_id: int, edge_width: int = 20, darkness_threshold: int = 180, preview_size: tuple = (200, 200)):
+        """Create a preview image showing both the mask (red) and dark edge pixels (blue).
         
         Args:
             mask_id: ID of the mask to preview
@@ -231,9 +265,13 @@ class SAMWebEngine:
             preview_size: Size of the preview image
         
         Returns:
-            Preview image with dark edges highlighted in blue
+            Preview image with mask overlay (red) and dark edges highlighted (blue)
         """
         if self.sam_analyzer is None or mask_id >= len(self.sam_analyzer.masks):
+            return None
+        
+        mask = self.sam_analyzer.masks[mask_id]
+        if mask is None:
             return None
         
         # Extract dark edge pixels
@@ -253,14 +291,35 @@ class SAMWebEngine:
         y2 = min(self.current_image.shape[0], y1 + h + 2 * padding)
         
         # Crop the region
-        region = self.current_image[y1:y2, x1:x2].copy()
+        blob_region = self.current_image[y1:y2, x1:x2].copy()
+        mask_region = mask[y1:y2, x1:x2]
         dark_pixels_region = dark_edge_data['dark_pixels_mask'][y1:y2, x1:x2]
         
-        # Highlight dark pixels in blue
-        region[dark_pixels_region > 0] = [255, 0, 0]  # Blue in BGR
+        if blob_region.size == 0:
+            return None
+        
+        # Start with the base image region
+        preview = blob_region.copy()
+        
+        # Step 1: Create mask overlay (semi-transparent Red for the mask region)
+        mask_overlay = np.zeros_like(preview)
+        mask_area = (mask_region > 0)
+        mask_overlay[mask_area] = [0, 0, 255]  # Red in BGR
+        
+        # Blend the mask overlay with the region
+        alpha = 0.4
+        preview = cv2.addWeighted(preview, 1 - alpha, mask_overlay, alpha, 0)
+        
+        # Step 2: Overlay dark edge pixels in blue (more opaque to make them stand out)
+        dark_edge_overlay = np.zeros_like(preview)
+        dark_edge_overlay[dark_pixels_region > 0] = [255, 0, 0]  # Blue in BGR
+        
+        # Blend dark edges with higher opacity
+        dark_alpha = 0.7
+        preview = cv2.addWeighted(preview, 1 - dark_alpha, dark_edge_overlay, dark_alpha, 0)
         
         # Resize to preview size
-        preview = cv2.resize(region, preview_size)
+        preview = cv2.resize(preview, preview_size)
         
         return preview
     
@@ -1511,8 +1570,8 @@ def get_mask_preview():
     try:
         data = request.get_json()
         show_dark_edges = data.get('show_dark_edges', False)
-        edge_width = data.get('edge_width', 3)
-        darkness_threshold = data.get('darkness_threshold', 100)
+        edge_width = data.get('edge_width', 20)
+        darkness_threshold = data.get('darkness_threshold', 180)
         
         # Support both coordinate-based and ID-based lookup
         if 'mask_id' in data:
@@ -1532,6 +1591,20 @@ def get_mask_preview():
                     mask_info = engine.sam_analyzer.mask_statistics[int(mask_id)].copy()
                     mask_info['mask_id'] = int(mask_id)
                     mask_info['state'] = engine.sam_analyzer.mask_states[int(mask_id)]
+                    
+                    # Add dark edge statistics including ring width
+                    dark_edge_data = engine.extract_dark_edge_pixels(
+                        int(mask_id), 
+                        int(edge_width), 
+                        int(darkness_threshold)
+                    )
+                    if dark_edge_data:
+                        mask_info['ring_width'] = dark_edge_data['ring_width']
+                        mask_info['dark_edge_diameter'] = dark_edge_data['dark_edge_diameter']
+                        mask_info['mask_diameter'] = dark_edge_data['mask_diameter']
+                        mask_info['dark_ratio'] = dark_edge_data['dark_ratio']
+                        mask_info['dark_pixel_count'] = dark_edge_data['dark_pixel_count']
+                        mask_info['edge_pixel_count'] = dark_edge_data['edge_pixel_count']
                 else:
                     preview_base64, mask_info = None, None
             else:
@@ -2460,8 +2533,8 @@ def get_dark_edge_preview():
     try:
         data = request.get_json()
         mask_id = data.get('mask_id', 0)
-        edge_width = data.get('edge_width', 3)
-        darkness_threshold = data.get('darkness_threshold', 100)
+        edge_width = data.get('edge_width', 100)
+        darkness_threshold = data.get('darkness_threshold', 255)
         
         if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
             return jsonify({'success': False, 'error': 'No masks available'})
@@ -2499,7 +2572,10 @@ def get_dark_edge_preview():
             'edge_pixel_count': dark_edge_data['edge_pixel_count'],
             'dark_ratio': dark_edge_data['dark_ratio'],
             'edge_width': edge_width,
-            'darkness_threshold': darkness_threshold
+            'darkness_threshold': darkness_threshold,
+            'mean_dark_edge_radius': dark_edge_data['mean_dark_edge_radius'],
+            'mask_mean_radius': dark_edge_data['mask_mean_radius'],
+            'ring_width': dark_edge_data['ring_width']
         })
         
     except Exception as e:
@@ -2513,8 +2589,8 @@ def apply_dark_edge_filter():
     """Filter masks based on dark edge pixel ratio"""
     try:
         data = request.get_json()
-        edge_width = data.get('edge_width', 3)
-        darkness_threshold = data.get('darkness_threshold', 100)
+        edge_width = data.get('edge_width', 20)
+        darkness_threshold = data.get('darkness_threshold', 180)
         min_dark_ratio = data.get('min_dark_ratio', 0.0)
         max_dark_ratio = data.get('max_dark_ratio', 1.0)
         
