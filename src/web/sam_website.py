@@ -168,7 +168,7 @@ class SAMWebEngine:
             alpha=0.3
         )
     
-    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 20, darkness_threshold: int = 180):
+    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80):
         """Extract dark pixels around the edge/contour of a specific mask and compute statistics including ring width."""
         print(f"🔍 extract_dark_edge_pixels called: mask_id={mask_id}, edge_width={edge_width}, darkness_threshold={darkness_threshold}")
         
@@ -234,11 +234,31 @@ class SAMWebEngine:
             dark_edge_diameter = dark_edge_radius * 2
             dark_edge_center = (float(circle_x), float(circle_y))
         
-        # Get mask diameter from mask_stats
-        mask_diameter = mask_stats.get('diameter', 0)
+        # Calculate inner mask diameter (excluding overlap with dark edge region)
+        # Create a mask that excludes the dark edge overlap
+        inner_mask = binary_mask.copy()
+        inner_mask[dark_pixels_mask > 0] = 0  # Remove dark edge pixels from mask
         
-        # Calculate ring width as difference between dark edge diameter and mask diameter
-        ring_width = dark_edge_diameter - mask_diameter
+        # Fit circle to the inner mask boundary (red mask without dark edge overlap)
+        ys_inner, xs_inner = np.where(inner_mask > 0)
+        if len(xs_inner) == 0:
+            # Fallback to original mask diameter if inner mask is empty
+            inner_mask_radius = 0
+            inner_mask_diameter = 0
+        else:
+            # Fit minimum enclosing circle to inner mask pixels
+            inner_mask_points = np.column_stack((xs_inner, ys_inner)).astype(np.float32)
+            (inner_circle_x, inner_circle_y), inner_circle_radius = cv2.minEnclosingCircle(inner_mask_points)
+            
+            inner_mask_radius = float(inner_circle_radius)
+            inner_mask_diameter = inner_mask_radius * 2
+        
+        # Calculate ring width as (dark edge diameter - inner mask diameter) / 2
+        # This gives the actual thickness of the ring since the dark edge surrounds the mask
+        ring_width = (dark_edge_diameter - inner_mask_diameter) / 2.0
+        
+        # Also keep original mask diameter for reference
+        mask_diameter_original = mask_stats.get('diameter', 0)
         
         return {
             'mask_id': mask_id,
@@ -251,11 +271,12 @@ class SAMWebEngine:
             'dark_edge_diameter': float(dark_edge_diameter),
             'dark_edge_radius': float(dark_edge_radius),
             'dark_edge_center': dark_edge_center,
-            'mask_diameter': float(mask_diameter),
+            'mask_diameter': float(inner_mask_diameter),  # Inner diameter (excluding dark edge overlap)
+            'mask_diameter_original': float(mask_diameter_original),  # Original full mask diameter
             'ring_width': float(ring_width)
         }
     
-    def create_dark_edge_preview(self, mask_id: int, edge_width: int = 20, darkness_threshold: int = 180, preview_size: tuple = (200, 200)):
+    def create_dark_edge_preview(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80, preview_size: tuple = (200, 200)):
         """Create a preview image showing both the mask (red) and dark edge pixels (blue).
         
         Args:
@@ -1570,8 +1591,8 @@ def get_mask_preview():
     try:
         data = request.get_json()
         show_dark_edges = data.get('show_dark_edges', False)
-        edge_width = data.get('edge_width', 20)
-        darkness_threshold = data.get('darkness_threshold', 180)
+        edge_width = data.get('edge_width', 5)
+        darkness_threshold = data.get('darkness_threshold', 80)
         
         # Support both coordinate-based and ID-based lookup
         if 'mask_id' in data:
@@ -2589,8 +2610,8 @@ def apply_dark_edge_filter():
     """Filter masks based on dark edge pixel ratio"""
     try:
         data = request.get_json()
-        edge_width = data.get('edge_width', 20)
-        darkness_threshold = data.get('darkness_threshold', 180)
+        edge_width = data.get('edge_width', 5)
+        darkness_threshold = data.get('darkness_threshold', 80)
         min_dark_ratio = data.get('min_dark_ratio', 0.0)
         max_dark_ratio = data.get('max_dark_ratio', 1.0)
         
@@ -2705,13 +2726,19 @@ def reset_dark_edge_filter():
 
 @app.route('/export_mask_csv', methods=['POST'])
 def export_mask_csv():
-    """Export mask information as CSV with center location, diameter, and pixel intensity"""
+    """Export mask information as CSV with center location, diameter, pixel intensity, and optional ring width"""
     try:
         if engine.sam_analyzer is None or not engine.sam_analyzer.masks:
             return jsonify({'success': False, 'error': 'No mask data available. Please run segmentation first.'})
         
         if not engine.sam_analyzer.mask_statistics:
             return jsonify({'success': False, 'error': 'No mask statistics available. Please run segmentation first.'})
+        
+        # Get optional ring width parameters from request
+        data = request.get_json() or {}
+        include_ring_width = data.get('include_ring_width', False)
+        edge_width = int(data.get('edge_width', 5))
+        darkness_threshold = int(data.get('darkness_threshold', 80))
         
         # Create CSV content - only export active masks (not filtered out)
         csv_lines = []
@@ -2723,9 +2750,15 @@ def export_mask_csv():
         
         # Create header with appropriate units
         if use_units:
-            csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity")
+            if include_ring_width:
+                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity,Ring_Width_{unit_name},Dark_Edge_Diameter_{unit_name},Dark_Ratio")
+            else:
+                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity")
         else:
-            csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity")
+            if include_ring_width:
+                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity,Ring_Width,Dark_Edge_Diameter,Dark_Ratio")
+            else:
+                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity")
         
         active_mask_count = 0
         for i, stats in enumerate(engine.sam_analyzer.mask_statistics):
@@ -2743,13 +2776,30 @@ def export_mask_csv():
                 area = stats.get('area', 0)
                 circularity = stats.get('circularity', 0)
                 
+                # Calculate ring width if requested
+                ring_width = 0
+                dark_edge_diameter = 0
+                dark_ratio = 0
+                if include_ring_width:
+                    dark_edge_data = engine.extract_dark_edge_pixels(i, edge_width, darkness_threshold)
+                    if dark_edge_data:
+                        ring_width = dark_edge_data.get('ring_width', 0)
+                        dark_edge_diameter = dark_edge_data.get('dark_edge_diameter', 0)
+                        dark_ratio = dark_edge_data.get('dark_ratio', 0)
+                
                 # Convert to units if conversion is enabled
                 if use_units:
                     diameter = engine.sam_analyzer.convert_pixels_to_units(diameter)
                     area = engine.sam_analyzer.convert_area_to_units(area)
+                    if include_ring_width:
+                        ring_width = engine.sam_analyzer.convert_pixels_to_units(ring_width)
+                        dark_edge_diameter = engine.sam_analyzer.convert_pixels_to_units(dark_edge_diameter)
                 
                 # Add row to CSV
-                csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f}")
+                if include_ring_width:
+                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f},{ring_width:.2f},{dark_edge_diameter:.2f},{dark_ratio:.3f}")
+                else:
+                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f}")
                 active_mask_count += 1
         
         # Check if there are any active masks to export
