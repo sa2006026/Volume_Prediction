@@ -1,3 +1,4 @@
+mamba activate myenv
 WORKFLOW: Max Diameter, Fluorescence Overlap (MIP), and Occupancy Calculation
 
 This guide explains how to use the Python code in this folder to:
@@ -85,3 +86,16 @@ CONTACT
   - process_droplets.py
   - match_fluorescence.py
   - visualize_results.py (optional)
+
+
+  match_droplet.py
+  # Basic usage
+python3 match_droplets.py ground_truth.csv single_layer.csv
+Created a Python script match_droplets.py that:
+Matches droplets between the two CSV files based on x,y coordinates with a 10px tolerance
+Outputs a CSV with:
+Diameter_μm (from single layer file)
+Ring_Width_μm (from single layer file)
+Ground_Truth_Diameter_μm (from ground truth file)
+Diameter_Difference_μm (difference between them)
+Additional fields: coordinates, distance, intensity, area, circularity, etc.

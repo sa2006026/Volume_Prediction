@@ -102,6 +102,8 @@ class SAMWebEngine:
         self.output_dir = "results/sam_segmentation"
         self.stored_masks = []  # Store masks for analysis
         self.last_adjusted_image = None  # Keep last adjusted image
+        # Cache for dark edge data: key = (mask_id, edge_width, darkness_threshold)
+        self.dark_edge_cache = {}
         os.makedirs(self.output_dir, exist_ok=True)
         
         # Initialize advanced SAM configuration if available
@@ -168,9 +170,26 @@ class SAMWebEngine:
             alpha=0.3
         )
     
-    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80):
-        """Extract dark pixels around the edge/contour of a specific mask and compute statistics including ring width."""
-        print(f"🔍 extract_dark_edge_pixels called: mask_id={mask_id}, edge_width={edge_width}, darkness_threshold={darkness_threshold}")
+    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80, use_cache: bool = True):
+        """Extract dark pixels around the edge/contour of a specific mask and compute statistics including ring width.
+        
+        Args:
+            mask_id: ID of the mask to analyze
+            edge_width: Width of the edge region to analyze
+            darkness_threshold: Pixel intensity threshold for "dark" pixels
+            use_cache: If True, check cache first and store results in cache
+        
+        Returns:
+            Dictionary with dark edge statistics (in pixels)
+        """
+        cache_key = (mask_id, edge_width, darkness_threshold)
+        
+        # Check cache first
+        if use_cache and cache_key in self.dark_edge_cache:
+            print(f"🔍 extract_dark_edge_pixels: Using cached data for mask_id={mask_id}, edge_width={edge_width}, darkness_threshold={darkness_threshold}")
+            return self.dark_edge_cache[cache_key]
+        
+        print(f"🔍 extract_dark_edge_pixels: Calculating new data for mask_id={mask_id}, edge_width={edge_width}, darkness_threshold={darkness_threshold}")
         
         if self.sam_analyzer is None or mask_id >= len(self.sam_analyzer.masks):
             return None
@@ -260,7 +279,7 @@ class SAMWebEngine:
         # Also keep original mask diameter for reference
         mask_diameter_original = mask_stats.get('diameter', 0)
         
-        return {
+        result = {
             'mask_id': mask_id,
             'dark_pixels_mask': dark_pixels_mask,
             'dark_pixel_count': int(dark_pixel_count),
@@ -275,6 +294,16 @@ class SAMWebEngine:
             'mask_diameter_original': float(mask_diameter_original),  # Original full mask diameter
             'ring_width': float(ring_width)
         }
+        
+        # Cache the result (store a copy without the mask image to save memory)
+        if use_cache:
+            cache_entry = result.copy()
+            # Don't cache the mask image itself to save memory
+            cache_entry.pop('dark_pixels_mask', None)
+            self.dark_edge_cache[cache_key] = cache_entry
+            print(f"   💾 Cached dark edge data for mask_id={mask_id}")
+        
+        return result
     
     def create_dark_edge_preview(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80, preview_size: tuple = (200, 200)):
         """Create a preview image showing both the mask (red) and dark edge pixels (blue).
@@ -295,10 +324,17 @@ class SAMWebEngine:
         if mask is None:
             return None
         
-        # Extract dark edge pixels
-        dark_edge_data = self.extract_dark_edge_pixels(mask_id, edge_width, darkness_threshold)
+        # Extract dark edge pixels (will use cache if available)
+        dark_edge_data = self.extract_dark_edge_pixels(mask_id, edge_width, darkness_threshold, use_cache=True)
         if dark_edge_data is None:
             return None
+        
+        # If dark_pixels_mask was not in cache, we need to recalculate it for preview
+        if 'dark_pixels_mask' not in dark_edge_data:
+            # Recalculate to get the mask for preview
+            dark_edge_data = self.extract_dark_edge_pixels(mask_id, edge_width, darkness_threshold, use_cache=False)
+            if dark_edge_data is None:
+                return None
         
         # Get mask bounding box for cropping
         mask_stats = self.sam_analyzer.mask_statistics[mask_id]
@@ -745,6 +781,9 @@ class SAMWebEngine:
             self.current_points_per_side
         )
         
+        # Clear dark edge cache when new segmentation is performed
+        self.clear_dark_edge_cache()
+        
         # Perform segmentation WITHOUT automatic overlap filtering
         # We'll apply our own overlap filter below with correct remove_mode parameter
         mask_stats = self.sam_analyzer.segment_droplets(
@@ -1063,6 +1102,8 @@ class SAMWebEngine:
         # Persist adjusted image for SAM segmentation
         self.last_adjusted_image = adjusted_image.copy()
         self.current_image = adjusted_image.copy()
+        # Clear dark edge cache since image changed
+        self.clear_dark_edge_cache()
         
         return adjusted_image
     
@@ -1100,6 +1141,8 @@ class SAMWebEngine:
         self.last_adjusted_image = adjusted_image.copy()
         # Also update current image so frontend redraws align
         self.current_image = adjusted_image.copy()
+        # Clear dark edge cache since image changed
+        self.clear_dark_edge_cache()
         
         return adjusted_image
     
@@ -1110,6 +1153,8 @@ class SAMWebEngine:
         
         self.current_image = self.original_image.copy()
         self.last_adjusted_image = None
+        # Clear dark edge cache since image changed
+        self.clear_dark_edge_cache()
         
         return self.current_image
     
@@ -1170,8 +1215,49 @@ class SAMWebEngine:
         # Update current image with enhanced version
         self.current_image = enhanced_image.copy()
         self.last_adjusted_image = enhanced_image.copy()
+        # Clear dark edge cache since image changed
+        self.clear_dark_edge_cache()
         
         return enhanced_image
+    
+    def get_dark_edge_data_with_units(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80):
+        """Get dark edge data with unit conversion applied if conversion is enabled.
+        
+        Args:
+            mask_id: ID of the mask to get dark edge data for
+            edge_width: Width of the edge region to analyze
+            darkness_threshold: Pixel intensity threshold for "dark" pixels
+        
+        Returns:
+            Dictionary with dark edge statistics, converted to units if conversion is enabled
+        """
+        # Get cached or calculate dark edge data (in pixels)
+        dark_edge_data = self.extract_dark_edge_pixels(mask_id, edge_width, darkness_threshold, use_cache=True)
+        if dark_edge_data is None:
+            return None
+        
+        # Create a copy to avoid modifying cached data
+        result = dark_edge_data.copy()
+        
+        # Apply unit conversion if enabled
+        if self.sam_analyzer and self.sam_analyzer.conversion_enabled:
+            # Convert pixel-based measurements to units
+            result['dark_edge_diameter'] = self.sam_analyzer.convert_pixels_to_units(result['dark_edge_diameter'])
+            result['dark_edge_radius'] = self.sam_analyzer.convert_pixels_to_units(result['dark_edge_radius'])
+            result['mask_diameter'] = self.sam_analyzer.convert_pixels_to_units(result['mask_diameter'])
+            result['mask_diameter_original'] = self.sam_analyzer.convert_pixels_to_units(result['mask_diameter_original'])
+            result['ring_width'] = self.sam_analyzer.convert_pixels_to_units(result['ring_width'])
+            result['edge_width'] = self.sam_analyzer.convert_pixels_to_units(result['edge_width'])
+            result['unit_name'] = self.sam_analyzer.unit_name
+        else:
+            result['unit_name'] = 'pixels'
+        
+        return result
+    
+    def clear_dark_edge_cache(self):
+        """Clear the dark edge cache (useful when image changes or masks are regenerated)"""
+        self.dark_edge_cache.clear()
+        print("🗑️ Dark edge cache cleared")
     
     def get_active_masks_region(self):
         """Get the combined region of all active masks"""
@@ -1211,6 +1297,8 @@ class SAMWebEngine:
         # Persist last adjusted image
         self.last_adjusted_image = result_image.copy()
         self.current_image = result_image.copy()
+        # Clear dark edge cache since image changed
+        self.clear_dark_edge_cache()
         
         return result_image
 
@@ -1328,6 +1416,8 @@ def upload_image():
         
         # Load the uploaded image
         engine.load_image(upload_path)
+        # Clear dark edge cache when new image is loaded
+        engine.clear_dark_edge_cache()
         image_base64 = engine.get_image_as_base64()
         
         return jsonify({
@@ -1613,8 +1703,8 @@ def get_mask_preview():
                     mask_info['mask_id'] = int(mask_id)
                     mask_info['state'] = engine.sam_analyzer.mask_states[int(mask_id)]
                     
-                    # Add dark edge statistics including ring width
-                    dark_edge_data = engine.extract_dark_edge_pixels(
+                    # Get dark edge statistics with unit conversion applied (uses cache)
+                    dark_edge_data = engine.get_dark_edge_data_with_units(
                         int(mask_id), 
                         int(edge_width), 
                         int(darkness_threshold)
@@ -1626,6 +1716,7 @@ def get_mask_preview():
                         mask_info['dark_ratio'] = dark_edge_data['dark_ratio']
                         mask_info['dark_pixel_count'] = dark_edge_data['dark_pixel_count']
                         mask_info['edge_pixel_count'] = dark_edge_data['edge_pixel_count']
+                        mask_info['unit_name'] = dark_edge_data.get('unit_name', 'pixels')
                 else:
                     preview_base64, mask_info = None, None
             else:
@@ -2563,8 +2654,8 @@ def get_dark_edge_preview():
         if mask_id < 0 or mask_id >= len(engine.sam_analyzer.masks):
             return jsonify({'success': False, 'error': 'Invalid mask ID'})
         
-        # Get dark edge data
-        dark_edge_data = engine.extract_dark_edge_pixels(
+        # Get dark edge data with unit conversion applied (uses cache)
+        dark_edge_data = engine.get_dark_edge_data_with_units(
             mask_id=int(mask_id),
             edge_width=int(edge_width),
             darkness_threshold=int(darkness_threshold)
@@ -2592,11 +2683,12 @@ def get_dark_edge_preview():
             'dark_pixel_count': dark_edge_data['dark_pixel_count'],
             'edge_pixel_count': dark_edge_data['edge_pixel_count'],
             'dark_ratio': dark_edge_data['dark_ratio'],
-            'edge_width': edge_width,
+            'edge_width': dark_edge_data.get('edge_width', edge_width),
             'darkness_threshold': darkness_threshold,
-            'mean_dark_edge_radius': dark_edge_data['mean_dark_edge_radius'],
-            'mask_mean_radius': dark_edge_data['mask_mean_radius'],
-            'ring_width': dark_edge_data['ring_width']
+            'ring_width': dark_edge_data['ring_width'],
+            'dark_edge_diameter': dark_edge_data['dark_edge_diameter'],
+            'mask_diameter': dark_edge_data['mask_diameter'],
+            'unit_name': dark_edge_data.get('unit_name', 'pixels')
         })
         
     except Exception as e:
@@ -2633,8 +2725,8 @@ def apply_dark_edge_filter():
             mask_state = engine.sam_analyzer.mask_states[i] if i < len(engine.sam_analyzer.mask_states) else 'active'
             
             if mask_state == 'active':
-                # Extract dark edge data
-                dark_edge_data = engine.extract_dark_edge_pixels(i, edge_width, darkness_threshold)
+                # Extract dark edge data (uses cache)
+                dark_edge_data = engine.extract_dark_edge_pixels(i, edge_width, darkness_threshold, use_cache=True)
                 
                 if dark_edge_data:
                     dark_ratio = dark_edge_data['dark_ratio']
@@ -2776,24 +2868,22 @@ def export_mask_csv():
                 area = stats.get('area', 0)
                 circularity = stats.get('circularity', 0)
                 
-                # Calculate ring width if requested
+                # Calculate ring width if requested (uses cache and applies unit conversion)
                 ring_width = 0
                 dark_edge_diameter = 0
                 dark_ratio = 0
                 if include_ring_width:
-                    dark_edge_data = engine.extract_dark_edge_pixels(i, edge_width, darkness_threshold)
+                    dark_edge_data = engine.get_dark_edge_data_with_units(i, edge_width, darkness_threshold)
                     if dark_edge_data:
                         ring_width = dark_edge_data.get('ring_width', 0)
                         dark_edge_diameter = dark_edge_data.get('dark_edge_diameter', 0)
                         dark_ratio = dark_edge_data.get('dark_ratio', 0)
                 
-                # Convert to units if conversion is enabled
+                # Convert to units if conversion is enabled (dark edge data already converted if include_ring_width)
                 if use_units:
                     diameter = engine.sam_analyzer.convert_pixels_to_units(diameter)
                     area = engine.sam_analyzer.convert_area_to_units(area)
-                    if include_ring_width:
-                        ring_width = engine.sam_analyzer.convert_pixels_to_units(ring_width)
-                        dark_edge_diameter = engine.sam_analyzer.convert_pixels_to_units(dark_edge_diameter)
+                    # Note: ring_width and dark_edge_diameter are already converted if include_ring_width is True
                 
                 # Add row to CSV
                 if include_ring_width:
