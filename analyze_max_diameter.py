@@ -10,21 +10,33 @@ import os
 from process_droplets import process_all_slides
 
 def main():
-    # Get all z_*.csv files (z_0.csv through z_15.csv only)
-    all_files = sorted(glob.glob('/data3/megan_data/Jimmy/Volume_Prediction/csv/1/csv_realunit/BF imaging/z_*.csv'))
+    # Directory containing the CSV files
+    base_dir = '/home/mib/Jimmy/Volume_Prediction/csv/2025-10-09_ddPCR_pipette_1Series127'
     
-    # Filter to only include files matching the pattern z_[0-9].csv or z_[0-9][0-9].csv
+    # Get all z*.csv files (z00.csv, z01.csv, etc.)
+    all_files = sorted(glob.glob(os.path.join(base_dir, 'z*.csv')))
+    
+    # Filter to only include files matching the pattern z[0-9][0-9].csv
+    # Specifically: z00, z01, z02, z03, z05-z15 (as specified by user)
     file_paths = []
     for fp in all_files:
         base_name = os.path.basename(fp)
-        # Only include z_0.csv through z_15.csv
-        if base_name.startswith('z_') and base_name.endswith('.csv') and not any(x in base_name for x in ['_bf_', '_replaced_']):
-            file_paths.append(fp)
+        # Match pattern z followed by two digits and .csv
+        if base_name.startswith('z') and base_name.endswith('.csv') and len(base_name) == 7:
+            # Extract the number part (e.g., "00" from "z00.csv")
+            try:
+                num_part = base_name[1:3]
+                num = int(num_part)
+                # Include only the files the user specified: z00, z01, z02, z03, z05-z15
+                if num in [0, 1, 2, 3] or (num >= 5 and num <= 15):
+                    file_paths.append(fp)
+            except ValueError:
+                continue
     
     if not file_paths:
-        print("No z_*.csv files found in the specified directory.")
+        print("No matching z*.csv files found in the specified directory.")
         print("Please check the directory path:")
-        print("/data3/megan_data/Jimmy/Volume_Prediction/csv/1/csv_realunit/BF imaging/")
+        print(base_dir)
         return
     
     print(f"Found {len(file_paths)} droplet files:")
@@ -37,7 +49,7 @@ def main():
     result_df = process_all_slides(file_paths, error_margin=10)
     
     # Export the result to a CSV file
-    output_csv_path = '/data3/megan_data/Jimmy/max_diameter_droplets.csv'
+    output_csv_path = '/home/mib/Jimmy/Volume_Prediction/max_diameter_droplets.csv'
     result_df.to_csv(output_csv_path, index=False)
     print(f"\nResults exported to: {output_csv_path}")
     print(f"Total unique droplets found: {len(result_df)}")
