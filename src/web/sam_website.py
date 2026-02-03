@@ -2877,12 +2877,12 @@ def export_mask_csv():
         # Create header with appropriate units
         if use_units:
             if include_ring_width:
-                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity,Ring_Width_{unit_name},Dark_Edge_Diameter_{unit_name},Dark_Ratio")
+                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity,Ring_Width_{unit_name},Dark_Edge_Diameter_{unit_name},Dark_Ratio,Prediction_Diameter_{unit_name}")
             else:
                 csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity")
         else:
             if include_ring_width:
-                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity,Ring_Width,Dark_Edge_Diameter,Dark_Ratio")
+                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity,Ring_Width,Dark_Edge_Diameter,Dark_Ratio,Prediction_Diameter")
             else:
                 csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity")
         
@@ -2923,9 +2923,15 @@ def export_mask_csv():
                     area = engine.sam_analyzer.convert_area_to_units(area)
                     # Note: ring_width and dark_edge_diameter are already converted if include_ring_width is True
                 
+                # Calculate prediction diameter if ring width is included
+                prediction_diameter = 0
+                if include_ring_width:
+                    # Prediction diameter = 1.05 * diameter + 0.41 * ring_width
+                    prediction_diameter = 1.05 * diameter + 0.41 * ring_width
+                
                 # Add row to CSV
                 if include_ring_width:
-                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f},{ring_width:.2f},{dark_edge_diameter:.2f},{dark_ratio:.3f}")
+                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f},{ring_width:.2f},{dark_edge_diameter:.2f},{dark_ratio:.3f},{prediction_diameter:.2f}")
                 else:
                     csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f}")
                 active_mask_count += 1
@@ -2954,6 +2960,285 @@ def export_mask_csv():
     
     except Exception as e:
         print(f"❌ Error in CSV export: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/match_csv_files', methods=['POST'])
+def match_csv_files():
+    """Match rows from two CSV files based on x,y coordinates (within ±5 pixels)"""
+    try:
+        # Check if files were uploaded
+        if 'diameter_file' not in request.files or 'fluorescent_file' not in request.files:
+            return jsonify({'success': False, 'error': 'Both diameter and fluorescent files are required'})
+        
+        diameter_file = request.files['diameter_file']
+        fluorescent_file = request.files['fluorescent_file']
+        
+        if diameter_file.filename == '' or fluorescent_file.filename == '':
+            return jsonify({'success': False, 'error': 'Please select both CSV files'})
+        
+        # Read CSV files
+        import csv
+        import io
+        
+        # Parse diameter file
+        diameter_content = diameter_file.read().decode('utf-8')
+        diameter_reader = csv.DictReader(io.StringIO(diameter_content))
+        diameter_rows = list(diameter_reader)
+        
+        # Parse fluorescent file
+        fluorescent_content = fluorescent_file.read().decode('utf-8')
+        fluorescent_reader = csv.DictReader(io.StringIO(fluorescent_content))
+        fluorescent_rows = list(fluorescent_reader)
+        
+        # Find x, y column names (case-insensitive)
+        def find_xy_columns(row):
+            """Find x and y column names in a row"""
+            x_col = None
+            y_col = None
+            # Try exact matches first (Center_X_px, Center_Y_px)
+            for col in row.keys():
+                col_lower = col.lower()
+                if 'center_x' in col_lower and ('px' in col_lower or 'pixel' in col_lower):
+                    x_col = col
+                if 'center_y' in col_lower and ('px' in col_lower or 'pixel' in col_lower):
+                    y_col = col
+            # Fallback to other patterns
+            if not x_col or not y_col:
+                for col in row.keys():
+                    col_lower = col.lower()
+                    if not x_col and 'x' in col_lower and ('center' in col_lower or 'coord' in col_lower or col_lower == 'x'):
+                        x_col = col
+                    if not y_col and 'y' in col_lower and ('center' in col_lower or 'coord' in col_lower or col_lower == 'y'):
+                        y_col = col
+            # Final fallback
+            if not x_col:
+                for col in row.keys():
+                    if 'center_x' in col.lower() or col.lower() == 'x':
+                        x_col = col
+                        break
+            if not y_col:
+                for col in row.keys():
+                    if 'center_y' in col.lower() or col.lower() == 'y':
+                        y_col = col
+                        break
+            return x_col, y_col
+        
+        # Get column names for both files
+        if not diameter_rows or not fluorescent_rows:
+            return jsonify({'success': False, 'error': 'One or both CSV files are empty'})
+        
+        diameter_x_col, diameter_y_col = find_xy_columns(diameter_rows[0])
+        fluorescent_x_col, fluorescent_y_col = find_xy_columns(fluorescent_rows[0])
+        
+        if not diameter_x_col or not diameter_y_col:
+            return jsonify({'success': False, 'error': 'Could not find x,y coordinates in diameter file. Expected columns like Center_X, Center_Y, or X, Y'})
+        
+        if not fluorescent_x_col or not fluorescent_y_col:
+            return jsonify({'success': False, 'error': 'Could not find x,y coordinates in fluorescent file. Expected columns like Center_X, Center_Y, or X, Y'})
+        
+        # Tolerance for matching (±5 pixels)
+        tolerance = 5.0
+        
+        # Convert coordinates to float and create lookup structures
+        def parse_coord(value):
+            """Parse coordinate value, handling various formats"""
+            try:
+                return float(str(value).strip())
+            except (ValueError, AttributeError):
+                return None
+        
+        # Create lookup for fluorescent file: (x, y) -> row
+        fluorescent_lookup = {}
+        for row in fluorescent_rows:
+            x = parse_coord(row.get(fluorescent_x_col))
+            y = parse_coord(row.get(fluorescent_y_col))
+            if x is not None and y is not None:
+                # Round to tolerance grid for faster lookup
+                x_key = round(x / tolerance) * tolerance
+                y_key = round(y / tolerance) * tolerance
+                key = (x_key, y_key)
+                if key not in fluorescent_lookup:
+                    fluorescent_lookup[key] = []
+                fluorescent_lookup[key].append((x, y, row))
+        
+        # Match rows
+        matched_rows = []
+        only_diameter_rows = []
+        only_fluorescent_indices = set(range(len(fluorescent_rows)))
+        
+        for diameter_row in diameter_rows:
+            x = parse_coord(diameter_row.get(diameter_x_col))
+            y = parse_coord(diameter_row.get(diameter_y_col))
+            
+            if x is None or y is None:
+                # Skip rows with invalid coordinates
+                only_diameter_rows.append(diameter_row)
+                continue
+            
+            # Search for matches within tolerance
+            matched = False
+            x_key = round(x / tolerance) * tolerance
+            y_key = round(y / tolerance) * tolerance
+            
+            # Check nearby grid cells (±1 cell in each direction)
+            for dx in [-tolerance, 0, tolerance]:
+                for dy in [-tolerance, 0, tolerance]:
+                    search_key = (x_key + dx, y_key + dy)
+                    if search_key in fluorescent_lookup:
+                        for fx, fy, fluorescent_row in fluorescent_lookup[search_key]:
+                            # Check actual distance
+                            distance = ((x - fx) ** 2 + (y - fy) ** 2) ** 0.5
+                            if distance <= tolerance:
+                                # Match found!
+                                matched = True
+                                # Combine rows - prioritize key columns
+                                combined_row = {}
+                                
+                                # Add key identifying columns first
+                                combined_row['Center_X_px'] = f"{x:.2f}"
+                                combined_row['Center_Y_px'] = f"{y:.2f}"
+                                combined_row['Distance_px'] = f"{distance:.2f}"
+                                
+                                # Add diameter file columns - keep important ones with original names
+                                for col, val in diameter_row.items():
+                                    col_lower = col.lower()
+                                    # Skip coordinate columns (already added)
+                                    if col == diameter_x_col or col == diameter_y_col:
+                                        continue
+                                    # Keep key columns with original names
+                                    if any(keyword in col_lower for keyword in ['diameter', 'ring_width', 'prediction', 'dark_edge', 'dark_ratio', 'mean_intensity', 'area', 'circularity', 'mask_id']):
+                                        combined_row[col] = val
+                                    else:
+                                        combined_row[f'Diameter_{col}'] = val
+                                
+                                # Add fluorescent file columns (with prefix to avoid conflicts)
+                                for col, val in fluorescent_row.items():
+                                    # Skip coordinate columns (already added)
+                                    if col == fluorescent_x_col or col == fluorescent_y_col:
+                                        continue
+                                    col_lower = col.lower()
+                                    # Check if column name already exists (e.g., both have Diameter_μm)
+                                    if col in combined_row:
+                                        # Add with fluorescent prefix
+                                        combined_row[f'Fluorescent_{col}'] = val
+                                    else:
+                                        # Use original name if it doesn't conflict
+                                        combined_row[col] = val
+                                
+                                matched_rows.append(combined_row)
+                                
+                                # Mark this fluorescent row as matched
+                                # Find the index by comparing coordinates
+                                for idx, rrow in enumerate(fluorescent_rows):
+                                    rx = parse_coord(rrow.get(fluorescent_x_col))
+                                    ry = parse_coord(rrow.get(fluorescent_y_col))
+                                    # Match by coordinates (within small tolerance)
+                                    if rx is not None and ry is not None:
+                                        if abs(rx - fx) < 0.01 and abs(ry - fy) < 0.01:
+                                            only_fluorescent_indices.discard(idx)
+                                            break
+                                break
+                        if matched:
+                            break
+                if matched:
+                    break
+            
+            if not matched:
+                only_diameter_rows.append(diameter_row)
+        
+        # Get only fluorescent rows
+        only_fluorescent_rows = [fluorescent_rows[i] for i in only_fluorescent_indices]
+        
+        # Generate CSV content
+        def escape_csv_value(value):
+            """Escape CSV value if it contains comma, quote, or newline"""
+            if value is None:
+                return ''
+            value_str = str(value)
+            if ',' in value_str or '"' in value_str or '\n' in value_str:
+                return '"' + value_str.replace('"', '""') + '"'
+            return value_str
+        
+        csv_lines = []
+        
+        # Get all unique column names from all three groups
+        all_columns = set()
+        if matched_rows:
+            all_columns.update(matched_rows[0].keys())
+        if only_diameter_rows:
+            all_columns.update(only_diameter_rows[0].keys())
+        if only_fluorescent_rows:
+            all_columns.update(only_fluorescent_rows[0].keys())
+        
+        # Sort columns: coordinates first, then key columns, then others
+        sorted_columns = []
+        coord_cols = ['Center_X_px', 'Center_Y_px', 'X', 'Y', 'Distance_px']
+        for col in coord_cols:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+        
+        # Add key columns
+        key_keywords = ['diameter', 'ring_width', 'prediction', 'mask_id', 'mean_intensity', 'area', 'circularity']
+        for keyword in key_keywords:
+            for col in sorted(all_columns):
+                if keyword in col.lower():
+                    sorted_columns.append(col)
+                    all_columns.discard(col)
+                    break
+        
+        # Add remaining columns
+        sorted_columns.extend(sorted(all_columns))
+        
+        # Write matched rows with group marker
+        if matched_rows:
+            csv_lines.append('=== MATCHED ROWS (Total: {}) ==='.format(len(matched_rows)))
+            csv_lines.append(','.join([escape_csv_value(col) for col in sorted_columns]))
+            for row in matched_rows:
+                values = [escape_csv_value(row.get(col, '')) for col in sorted_columns]
+                csv_lines.append(','.join(values))
+        
+        # Write only diameter rows
+        if only_diameter_rows:
+            if csv_lines:  # Add separator if there's previous content
+                csv_lines.append('')
+            csv_lines.append('=== ONLY IN DIAMETER FILE (Total: {}) ==='.format(len(only_diameter_rows)))
+            csv_lines.append(','.join([escape_csv_value(col) for col in sorted_columns]))
+            for row in only_diameter_rows:
+                values = [escape_csv_value(row.get(col, '')) for col in sorted_columns]
+                csv_lines.append(','.join(values))
+        
+        # Write only fluorescent rows
+        if only_fluorescent_rows:
+            if csv_lines:  # Add separator if there's previous content
+                csv_lines.append('')
+            csv_lines.append('=== ONLY IN FLUORESCENT FILE (Total: {}) ==='.format(len(only_fluorescent_rows)))
+            csv_lines.append(','.join([escape_csv_value(col) for col in sorted_columns]))
+            for row in only_fluorescent_rows:
+                values = [escape_csv_value(row.get(col, '')) for col in sorted_columns]
+                csv_lines.append(','.join(values))
+        
+        csv_content = '\n'.join(csv_lines)
+        
+        # Generate filename with timestamp
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f'matched_results_{timestamp}.csv'
+        
+        return jsonify({
+            'success': True,
+            'csv_content': csv_content,
+            'filename': filename,
+            'matched_count': len(matched_rows),
+            'only_diameter_count': len(only_diameter_rows),
+            'only_fluorescent_count': len(only_fluorescent_rows),
+            'tolerance': tolerance
+        })
+        
+    except Exception as e:
+        print(f"❌ Error in CSV matching: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
