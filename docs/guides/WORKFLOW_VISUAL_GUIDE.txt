@@ -1,0 +1,274 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║          VISUAL WORKFLOW: LOCALHOST → PUBLIC URL                            ║
+║                    (Cloudflare Tunnel)                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 1: PREPARATION                                                         │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐
+    │  Prerequisites│
+    │  Check        │
+    └──────┬────────┘
+           │
+           ├─ Cloudflare account ✓
+           ├─ Domain name ✓
+           ├─ cloudflared installed ✓
+           └─ Flask app ready ✓
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 2: DOMAIN SETUP                                                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐
+    │  Add Domain   │
+    │  to Cloudflare│
+    └──────┬────────┘
+           │
+           ├─ Go to dash.cloudflare.com
+           ├─ Click "Add a Site"
+           ├─ Enter domain: mibseg.com
+           └─ Choose Free plan
+           │
+    ┌──────▼────────┐
+    │ Update        │
+    │ Nameservers   │
+    └──────┬────────┘
+           │
+           ├─ Get nameservers from Cloudflare
+           ├─ Update at domain registrar
+           └─ Wait 5-30 minutes for propagation
+           │
+    ┌──────▼────────┐
+    │ Domain Active │
+    │ ✓             │
+    └───────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 3: TUNNEL SETUP                                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐
+    │ Authenticate │
+    │ with         │
+    │ Cloudflare   │
+    └──────┬────────┘
+           │
+           │ $ cloudflared tunnel login
+           │
+           ├─ Browser opens
+           ├─ Login to Cloudflare
+           ├─ Select domain
+           └─ Authorize
+           │
+    ┌──────▼────────┐
+    │ Create Tunnel │
+    └──────┬────────┘
+           │
+           │ $ cloudflared tunnel create sam-website
+           │
+           ├─ Tunnel ID generated
+           ├─ Credentials saved
+           └─ Output: Created tunnel sam-website with id xxxxx
+           │
+    ┌──────▼────────┐
+    │ Create Config │
+    │ File          │
+    └──────┬────────┘
+           │
+           │ $ nano ~/.cloudflared/config.yml
+           │
+           ├─ tunnel: sam-website
+           ├─ credentials-file: /path/to/xxxxx.json
+           ├─ hostname: mibseg.com
+           └─ service: http://localhost:5013
+           │
+    ┌──────▼────────┐
+    │ Create DNS    │
+    │ Record        │
+    └──────┬────────┘
+           │
+           │ $ cloudflared tunnel route dns sam-website mibseg.com
+           │
+           ├─ CNAME record created
+           └─ Points mibseg.com → tunnel
+           │
+    ┌──────▼────────┐
+    │ DNS Record    │
+    │ Created ✓     │
+    └───────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 4: START SERVICES                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐
+    │ Start Flask  │
+    │ Application  │
+    └──────┬────────┘
+           │
+           │ $ python3 src/web/sam_website.py
+           │
+           ├─ Flask runs on localhost:5013
+           └─ Keep terminal open!
+           │
+    ┌──────▼────────┐
+    │ Start Tunnel  │
+    └──────┬────────┘
+           │
+           │ $ cloudflared tunnel run sam-website
+           │
+           ├─ Tunnel connects to Cloudflare
+           ├─ Multiple connections established
+           └─ Keep terminal open!
+           │
+    ┌──────▼────────┐
+    │ Both Running  │
+    │ ✓             │
+    └───────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 5: TEST & VERIFY                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐
+    │ Wait for DNS │
+    │ Propagation  │
+    └──────┬────────┘
+           │
+           └─ Wait 1-2 minutes
+           │
+    ┌──────▼────────┐
+    │ Test Public   │
+    │ URL           │
+    └──────┬────────┘
+           │
+           ├─ Browser: https://mibseg.com
+           ├─ Command: curl https://mibseg.com
+           └─ Should show Flask app
+           │
+    ┌──────▼────────┐
+    │ Success!      │
+    │ ✓             │
+    └───────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ PHASE 6: MAKE PERMANENT (OPTIONAL)                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐
+    │ Install as   │
+    │ Service      │
+    └──────┬────────┘
+           │
+           │ $ sudo cloudflared service install
+           │ $ sudo systemctl start cloudflared
+           │ $ sudo systemctl enable cloudflared
+           │
+           ├─ Tunnel runs in background
+           ├─ Auto-starts on boot
+           └─ Can close terminals
+           │
+    ┌──────▼────────┐
+    │ 24/7 Running  │
+    │ ✓             │
+    └───────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          DATA FLOW DIAGRAM                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+    Internet User
+         │
+         │ HTTPS Request
+         │ https://mibseg.com
+         ▼
+    ┌─────────────────┐
+    │  Cloudflare     │
+    │  Edge Network   │
+    │  (Global CDN)   │
+    └────────┬────────┘
+             │
+             │ Encrypted Tunnel
+             │ (QUIC Protocol)
+             ▼
+    ┌─────────────────┐
+    │  cloudflared     │
+    │  Tunnel         │
+    │  (Your Machine)  │
+    └────────┬────────┘
+             │
+             │ HTTP Request
+             │ http://localhost:5013
+             ▼
+    ┌─────────────────┐
+    │  Flask App      │
+    │  (localhost:5013)│
+    └─────────────────┘
+             │
+             │ HTTP Response
+             │ (HTML/JSON)
+             ▼
+    ┌─────────────────┐
+    │  cloudflared     │
+    │  Tunnel         │
+    └────────┬────────┘
+             │
+             │ Encrypted Tunnel
+             │ (QUIC Protocol)
+             ▼
+    ┌─────────────────┐
+    │  Cloudflare     │
+    │  Edge Network   │
+    └────────┬────────┘
+             │
+             │ HTTPS Response
+             │ (Encrypted)
+             ▼
+    ┌─────────────────┐
+    │  Internet User  │
+    │  (Browser)      │
+    └─────────────────┘
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          KEY COMMANDS SUMMARY                               ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. Login:              cloudflared tunnel login
+2. Create:             cloudflared tunnel create sam-website
+3. Configure:          nano ~/.cloudflared/config.yml
+4. DNS:                cloudflared tunnel route dns sam-website mibseg.com
+5. Start Flask:        python3 src/web/sam_website.py
+6. Start Tunnel:       cloudflared tunnel run sam-website
+7. Install Service:    sudo cloudflared service install
+8. Start Service:     sudo systemctl start cloudflared
+9. Enable Auto-start:  sudo systemctl enable cloudflared
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          SUCCESS INDICATORS                                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+✓ Domain shows "Active" in Cloudflare dashboard
+✓ Tunnel credentials file created: ~/.cloudflared/xxxxx.json
+✓ Config file created: ~/.cloudflared/config.yml
+✓ DNS CNAME record exists in Cloudflare
+✓ Flask app responds: curl http://localhost:5013
+✓ Tunnel shows "Registered tunnel connection" messages
+✓ Public URL accessible: curl https://mibseg.com
+✓ Service running: sudo systemctl status cloudflared
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          TIME ESTIMATES                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Phase 1: Prerequisites        →  5 minutes
+Phase 2: Domain Setup         →  5-30 minutes (DNS propagation)
+Phase 3: Tunnel Setup          →  5 minutes
+Phase 4: Start Services        →  2 minutes
+Phase 5: Test & Verify         →  2 minutes
+Phase 6: Make Permanent        →  3 minutes
+────────────────────────────────────────────
+Total Time:                    →  22-47 minutes
+
+Most time is waiting for DNS propagation (5-30 minutes)

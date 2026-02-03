@@ -1,0 +1,85 @@
+╔══════════════════════════════════════════════════════════════════════════╗
+║          PERMANENT URL SETUP - QUICK REFERENCE CARD                      ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+📋 PREREQUISITES:
+   □ Cloudflare account (free)
+   □ Domain added to Cloudflare
+   □ Domain nameservers changed to Cloudflare's
+   □ Flask app running on localhost:5013
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 QUICKEST METHOD (Automated):
+   
+   ./scripts/cloudflare/setup_cloudflare_tunnel.sh
+   → Choose option 1
+   → Follow prompts
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📝 MANUAL METHOD (5 Steps):
+
+   1. Login to Cloudflare:
+      cloudflared tunnel login
+
+   2. Create tunnel:
+      cloudflared tunnel create sam-website
+      → Save the tunnel ID!
+
+   3. Create config file:
+      nano ~/.cloudflared/config.yml
+      
+      Add:
+      ┌─────────────────────────────────────────────────────────┐
+      │ tunnel: YOUR_TUNNEL_ID                                  │
+      │ credentials-file: /home/mib/.cloudflared/YOUR_ID.json   │
+      │                                                          │
+      │ ingress:                                                 │
+      │   - hostname: sam.yourdomain.com                        │
+      │     service: http://localhost:5013                       │
+      │   - service: http_status:404                             │
+      └─────────────────────────────────────────────────────────┘
+
+   4. Create DNS record:
+      cloudflared tunnel route dns sam-website sam.yourdomain.com
+
+   5. Run tunnel:
+      cloudflared tunnel run sam-website
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚙️  INSTALL AS SERVICE (Run 24/7):
+
+   sudo cloudflared service install
+   sudo systemctl start cloudflared
+   sudo systemctl enable cloudflared
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 USEFUL COMMANDS:
+
+   List tunnels:          cloudflared tunnel list
+   Tunnel info:           cloudflared tunnel info sam-website
+   Check service status:   sudo systemctl status cloudflared
+   View logs:             sudo journalctl -u cloudflared -f
+   Stop service:          sudo systemctl stop cloudflared
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🐛 COMMON ISSUES:
+
+   ❌ "Connection refused"
+      → Make sure Flask app is running: curl http://localhost:5013
+
+   ❌ "Tunnel not found"
+      → Check tunnel name: cloudflared tunnel list
+
+   ❌ "Can't access website"
+      → Wait 1-2 min for DNS propagation
+      → Check DNS in Cloudflare dashboard
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 DETAILED GUIDE:
+   See PERMANENT_URL_SETUP.md for complete instructions

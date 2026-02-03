@@ -1,11 +1,13 @@
 opencv-python>=4.5.0
-numpy>=1.19.0
+numpy>=1.19.0,<2.0.0
 matplotlib>=3.3.0
 scikit-learn>=0.24.0
 scipy>=1.6.0
 flask>=2.0.0
 pillow>=8.0.0
-torch>=1.9.0
-torchvision>=0.10.0
+# torch and torchvision are already installed in the base image (pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime)
+# Do not reinstall to avoid conflicts and ensure CUDA support
+# torch>=1.9.0
+# torchvision>=0.10.0
 werkzeug>=2.0.0
 segment-anything>=1.0

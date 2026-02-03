@@ -1,0 +1,49 @@
+# Dockerfile for SAM Segmentation Flask App (CPU-only version)
+# Use this if you don't have GPU or want to test CPU mode
+
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /app
+
+# Set timezone non-interactively to avoid prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    tzdata \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    git \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first for better Docker layer caching
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p uploads results/sam_segmentation templates model
+
+# Expose Flask port
+EXPOSE 5013
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV FLASK_APP=src/web/sam_website.py
+ENV PYTHONPATH=/app
+# Force CPU mode
+ENV CUDA_VISIBLE_DEVICES=""
+
+# Run the application
+CMD ["python", "src/web/sam_website.py"]

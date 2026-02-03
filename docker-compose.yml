@@ -1,0 +1,28 @@
+services:
+  sam-website:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sam-segmentation-app
+    ports:
+      - "5013:5013"
+    volumes:
+      # Mount directories for persistence (data survives container restarts)
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./templates:/app/templates
+      - ./model:/app/model
+      # Mount data directory as read-only
+      - ./data:/app/data:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    # Uncomment the section below if you have GPU and want to use it
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    restart: unless-stopped

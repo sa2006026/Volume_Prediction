@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+*.txt
+!requirements.txt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Results and uploads (will be mounted as volumes)
+results/
+uploads/
+
+# Large data directories (mounted as volumes, not needed in image)
+data/
+csv/
+Analyze/
+
+# Model files (if downloading separately, or mount as volume)
+# Uncomment if models are downloaded at runtime or mounted
+# model/sam_vit_h_4b8939.pth
+# model/sam_vit_l_0b3195.pth
+
+# Scripts (not needed in Docker image - app runs from src/)
+scripts/
+tools/
+
+# Documentation (not needed in image)
+docs/
+
+# Temporary files
+*.tmp
+*.bak
+*.cache
+
+# Docker files themselves
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Test files
+tests/
+test_*.py
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Large image files (not needed in build context)
+*.jpg
+*.jpeg
+*.png
+*.tif
+*.tiff
+!templates/**/*.jpg
+!templates/**/*.png
+
+# Other large files
+*.zip
+*.tar
+*.tar.gz
+*.gz

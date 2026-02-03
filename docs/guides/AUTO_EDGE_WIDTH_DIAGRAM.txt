@@ -1,0 +1,158 @@
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     AUTO EDGE WIDTH FEATURE                             │
+│                  Prevents Dark Ring Overlap                             │
+└─────────────────────────────────────────────────────────────────────────┘
+
+BEFORE (Manual Mode - Fixed Edge Width):
+─────────────────────────────────────────
+
+   Droplet A              Droplet B
+     ( O )                  ( O )
+    [█████]                [█████]
+   [███████]  OVERLAP!   [███████]
+  [█████████]═══════════[█████████]
+   [███████]              [███████]
+    [█████]                [█████]
+     ( O )                  ( O )
+
+  Legend: ( O ) = Droplet    [███] = Dark Ring Detection Zone
+  
+  Problem: Fixed edge width (e.g., 50px) extends into neighboring 
+           droplet, causing false dark pixel detection!
+
+
+AFTER (Auto Mode - Adaptive Edge Width):
+────────────────────────────────────────
+
+   Droplet A              Droplet B
+     ( O )                  ( O )
+    [████]                  [████]
+   [██████]   ← GAP →     [██████]
+  [████████]             [████████]
+   [██████]               [██████]
+    [████]                  [████]
+     ( O )                  ( O )
+
+  Legend: ( O ) = Droplet    [███] = Adaptive Dark Ring Zone
+  
+  Solution: Edge width automatically adjusts to stop just before
+            reaching neighboring droplets!
+
+
+ALGORITHM FLOW:
+──────────────
+
+1. Select Target Droplet
+   └─> Mask ID = 5
+
+2. Find All Other Droplets
+   └─> Create combined mask of masks 0,1,2,3,4,6,7,8...
+
+3. Calculate Distance Transform
+   └─> For each pixel, compute distance to nearest other droplet
+   
+       Distance Map Example:
+       ....5555555555....
+       ..55555555555555..
+       .5555555555555555.
+       555555 [O] 555555   ← Numbers show distance in pixels
+       .5555555555555555.
+       ..55555555555555..
+       ....5555555555....
+
+4. Sample Along Contour
+   └─> Check distance at each contour point of target droplet
+   
+       Contour Point → Distance Check
+       ──────────────────────────────
+       Point 1       → 45 pixels
+       Point 2       → 50 pixels
+       Point 3       → 12 pixels  ← Minimum distance!
+       Point 4       → 30 pixels
+       ...
+
+5. Calculate Optimal Width
+   └─> Optimal = min(12 - 2, 100) = 10 pixels
+       (Subtract 2px safety margin, cap at max 100px)
+
+6. Use Optimal Width
+   └─> Dark edge detection now uses 10px width instead of default
+
+
+BENEFITS:
+─────────
+
+✓ Prevents false positives from neighboring droplets
+✓ Adaptive per droplet (crowded areas get smaller width)
+✓ Maintains accuracy of dark ring measurements
+✓ Safe with built-in margin
+✓ Backward compatible (opt-in feature)
+
+
+UI WORKFLOW:
+────────────
+
+User Action:                          System Response:
+────────────                          ────────────────
+
+1. Enable "Show Dark Edge Preview"  
+                                    ──> Shows dark ring with manual width
+
+2. Check "Auto Edge Width"          
+                                    ──> Disables manual slider
+                                    ──> Adds opacity effect
+                                    
+3. Hover over Droplet               
+                                    ──> Calculates optimal width
+                                    ──> Shows preview with optimal width
+                                    ──> Displays "Edge Width Used: 10px (Auto)"
+
+4. Hover over Different Droplet     
+                                    ──> Calculates new optimal width
+                                    ──> Shows "Edge Width Used: 25px (Auto)"
+                                    ──> (Different droplet, different spacing!)
+
+
+TECHNICAL SPECIFICATIONS:
+─────────────────────────
+
+Distance Calculation:
+  - Method: OpenCV distanceTransform()
+  - Type: L2 (Euclidean distance)
+  - Mask Size: 5 (for accuracy)
+
+Edge Width Constraints:
+  - Minimum: 5 pixels
+  - Maximum: 100 pixels
+  - Safety Margin: 2 pixels
+
+Performance:
+  - Caching: Yes (keyed by mask_id, edge_width, darkness_threshold)
+  - Computation: O(n) where n = contour points (typically fast)
+  - Distance Transform: O(w*h) where w,h = image dimensions (one-time)
+
+Files Modified:
+  - src/web/sam_website.py (backend logic)
+  - templates/sam_website.html (frontend UI)
+
+
+EXAMPLE OUTPUT:
+───────────────
+
+Console Log:
+  🔍 Optimal edge width for mask 5: 10 pixels (min distance to neighbors: 12.3)
+  🤖 Auto edge width enabled: using 10 pixels for mask 5
+  💾 Cached dark edge data for mask_id=5
+
+Preview Panel:
+  ┌────────────────────────────┐
+  │ Mask 6                     │
+  │ Status: Active             │
+  │ Diameter: 45.2 px          │
+  │ Ring Width: 2.3 px         │
+  │ ─────────────────────────  │
+  │ 🪄 Edge Width Used:        │
+  │    10 px (Auto)            │  ← New display!
+  │ ─────────────────────────  │
+  │ Dark Ratio: 15.2%          │
+  └────────────────────────────┘

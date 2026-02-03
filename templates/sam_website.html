@@ -84,6 +84,42 @@
             padding-bottom: 8px;
         }
 
+        /* Admin Mode Styles - Hide admin-only elements when admin mode is NOT active */
+        .container:not(.admin-mode-active) .admin-mode-only {
+            display: none !important;
+        }
+
+        /* When admin mode is active, allow JavaScript to control visibility normally */
+        .admin-mode-active .admin-mode-only {
+            /* Don't force display, let JavaScript and inline styles control it */
+        }
+
+        .admin-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+
+        .admin-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .header {
+            position: relative;
+        }
+
         .btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
@@ -715,6 +751,9 @@
 <body>
     <div class="container">
         <div class="header">
+            <button class="admin-btn" id="adminModeBtn" onclick="toggleAdminMode()">
+                <i class="fas fa-cog"></i> Admin Mode
+            </button>
             <h1>🤖 SAM Interactive Segmentation</h1>
             <p>Upload images, configure SAM parameters, and interactively manage segmentation masks</p>
         </div>
@@ -747,112 +786,158 @@
                 <div class="control-group">
                     <h3>⚙️ SAM Configuration</h3>
                     
-                    <div class="input-group">
-                        <label for="modelSize">Model Size:</label>
-                        <select id="modelSize">
-                            <option value="vit_b">ViT-B (Fastest, 85MB)</option>
-                            <option value="vit_l">ViT-L (Balanced, 334MB)</option>
-                            <option value="vit_h">ViT-H (Best Quality, 2.4GB)</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Advanced Backend Selection -->
-                    <div class="input-group" id="backendSelection" style="display: none;">
-                        <label for="samBackend">Backend:</label>
-                        <select id="samBackend">
-                            <option value="pytorch">PyTorch (Default)</option>
-                            <option value="onnx">ONNX (Optimized)</option>
-                            <option value="tensorrt">TensorRT (Fastest)</option>
-                        </select>
-                        <small style="color: #666;">Advanced backends require additional setup</small>
-                    </div>
-                    
-                    <div class="input-group">
-                        <label for="cropLayers">Crop Layers: <span id="cropLayersValue">1</span></label>
-                        <input type="range" id="cropLayers" min="1" max="5" value="1" oninput="updateCropLayersDisplay()">
-                        <small style="color: #666;">More layers = better multi-scale detection</small>
-                    </div>
-                    
-                    <div class="input-group">
-                        <label for="pointsPerSide">Points per Side: <span id="pointsPerSideValue">32</span></label>
-                        <input type="range" id="pointsPerSide" min="8" max="64" step="8" value="32" oninput="updatePointsPerSideDisplay()">
-                        <small style="color: #666;">More points = denser sampling</small>
-                    </div>
-                    
-                    <div class="input-group">
-                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                            <input type="checkbox" id="enableOverlapFilter" checked style="transform: scale(1.2);" onchange="toggleOverlapFilterControls()">
-                            <span>Overlap Filter</span>
-                        </label>
-                        <div id="overlapFilterControls">
-                            <label for="overlapThresholdSlider" style="font-size: 0.9em; font-weight: normal;">
-                                Threshold: <span id="overlapThresholdSliderValue">0.80</span>
+                    <!-- Admin Mode Only: Model Size and Advanced Options -->
+                    <div class="admin-mode-only">
+                        <div class="input-group">
+                            <label for="modelSize">Model Size:</label>
+                            <select id="modelSize">
+                                <option value="vit_b">ViT-B (Fastest, 85MB)</option>
+                                <option value="vit_l">ViT-L (Balanced, 334MB)</option>
+                                <option value="vit_h">ViT-H (Best Quality, 2.4GB)</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Advanced Backend Selection -->
+                        <div class="input-group" id="backendSelection" style="display: none;">
+                            <label for="samBackend">Backend:</label>
+                            <select id="samBackend">
+                                <option value="pytorch">PyTorch (Default)</option>
+                                <option value="onnx">ONNX (Optimized)</option>
+                                <option value="tensorrt">TensorRT (Fastest)</option>
+                            </select>
+                            <small style="color: #666;">Advanced backends require additional setup</small>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="cropLayers">Crop Layers: <span id="cropLayersValue">1</span></label>
+                            <input type="range" id="cropLayers" min="1" max="5" value="1" oninput="updateCropLayersDisplay()">
+                            <small style="color: #666;">More layers = better multi-scale detection</small>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="pointsPerSide">Points per Side: <span id="pointsPerSideValue">32</span></label>
+                            <input type="range" id="pointsPerSide" min="8" max="64" step="8" value="32" oninput="updatePointsPerSideDisplay()">
+                            <small style="color: #666;">More points = denser sampling</small>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <input type="checkbox" id="enableOverlapFilter" checked style="transform: scale(1.2);" onchange="toggleOverlapFilterControls()">
+                                <span>Overlap Filter</span>
                             </label>
-                            <input type="range" id="overlapThresholdSlider" min="0.5" max="1.0" step="0.05" value="0.80" oninput="updateOverlapThresholdDisplay()">
-                            <small style="color: #666;">Remove masks with >80% overlap (higher = more strict)</small>
-                            
-                            <div style="margin-top: 10px;">
-                                <label style="font-size: 0.9em; font-weight: normal; display: block; margin-bottom: 5px;">Remove:</label>
-                                <div style="display: flex; gap: 15px;">
-                                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                        <input type="radio" name="overlapRemoveMode" value="larger" checked>
-                                        <span style="font-size: 0.9em;">Larger mask</span>
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
-                                        <input type="radio" name="overlapRemoveMode" value="smaller">
-                                        <span style="font-size: 0.9em;">Smaller mask</span>
-                                    </label>
+                            <div id="overlapFilterControls">
+                                <label for="overlapThresholdSlider" style="font-size: 0.9em; font-weight: normal;">
+                                    Threshold: <span id="overlapThresholdSliderValue">0.80</span>
+                                </label>
+                                <input type="range" id="overlapThresholdSlider" min="0.5" max="1.0" step="0.05" value="0.80" oninput="updateOverlapThresholdDisplay()">
+                                <small style="color: #666;">Remove masks with >80% overlap (higher = more strict)</small>
+                                
+                                <div style="margin-top: 10px;">
+                                    <label style="font-size: 0.9em; font-weight: normal; display: block; margin-bottom: 5px;">Remove:</label>
+                                    <div style="display: flex; gap: 15px;">
+                                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                            <input type="radio" name="overlapRemoveMode" value="larger" checked>
+                                            <span style="font-size: 0.9em;">Larger mask</span>
+                                        </label>
+                                        <label style="display: flex; align-items: center; gap: 5px; cursor: pointer;">
+                                            <input type="radio" name="overlapRemoveMode" value="smaller">
+                                            <span style="font-size: 0.9em;">Smaller mask</span>
+                                        </label>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="input-group">
-                        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                            <input type="checkbox" id="enableCircularityFilter" style="transform: scale(1.2);" onchange="toggleCircularityFilterControls()">
-                            <span>Circularity Filter</span>
-                        </label>
-                        <div id="circularityFilterControls" style="display: none;">
-                            <label for="minCircularitySlider" style="font-size: 0.9em; font-weight: normal; display: block; margin-bottom: 5px;">
-                                Min Circularity: <span id="minCircularitySliderValue">0.00</span>
+                        
+                        <div class="input-group">
+                            <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <input type="checkbox" id="enableCircularityFilter" style="transform: scale(1.2);" onchange="toggleCircularityFilterControls()">
+                                <span>Circularity Filter</span>
                             </label>
-                            <input type="range" id="minCircularitySlider" min="0" max="1" step="0.05" value="0.00" oninput="updateCircularityDisplay()">
-                            
-                            <label for="maxCircularitySlider" style="font-size: 0.9em; font-weight: normal; display: block; margin-top: 10px; margin-bottom: 5px;">
-                                Max Circularity: <span id="maxCircularitySliderValue">1.00</span>
-                            </label>
-                            <input type="range" id="maxCircularitySlider" min="0" max="1" step="0.05" value="1.00" oninput="updateCircularityDisplay()">
-                            
-                            <small style="color: #666; display: block; margin-top: 8px;">
-                                Filter masks by shape roundness (0=irregular, 1=perfect circle)
-                            </small>
-                            
-                            <div style="background: #e7f3ff; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 0.85em;">
-                                <strong style="color: #007bff;">💡 Tip:</strong> Set min=0.7 to keep only circular objects
+                            <div id="circularityFilterControls" style="display: none;">
+                                <label for="minCircularitySlider" style="font-size: 0.9em; font-weight: normal; display: block; margin-bottom: 5px;">
+                                    Min Circularity: <span id="minCircularitySliderValue">0.00</span>
+                                </label>
+                                <input type="range" id="minCircularitySlider" min="0" max="1" step="0.05" value="0.00" oninput="updateCircularityDisplay()">
+                                
+                                <label for="maxCircularitySlider" style="font-size: 0.9em; font-weight: normal; display: block; margin-top: 10px; margin-bottom: 5px;">
+                                    Max Circularity: <span id="maxCircularitySliderValue">1.00</span>
+                                </label>
+                                <input type="range" id="maxCircularitySlider" min="0" max="1" step="0.05" value="1.00" oninput="updateCircularityDisplay()">
+                                
+                                <small style="color: #666; display: block; margin-top: 8px;">
+                                    Filter masks by shape roundness (0=irregular, 1=perfect circle)
+                                </small>
+                                
+                                <div style="background: #e7f3ff; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 0.85em;">
+                                    <strong style="color: #007bff;">💡 Tip:</strong> Set min=0.7 to keep only circular objects
+                                </div>
                             </div>
+                        </div>
+                        
+                        <!-- Advanced Options -->
+                        <div id="advancedOptions" style="display: none;">
+                            <div style="margin: 15px 0;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="performanceMode" style="transform: scale(1.1);">
+                                    <span>Performance Mode</span>
+                                </label>
+                                <small style="color: #666; display: block; margin-top: 5px;">
+                                    Optimize for speed over quality (faster processing)
+                                </small>
+                            </div>
+                            
+                            <div style="margin: 15px 0;">
+                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="useGpu" checked style="transform: scale(1.1);">
+                                    <span>Use GPU Acceleration</span>
+                                </label>
+                                <small style="color: #666; display: block; margin-top: 5px;">
+                                    Enable GPU processing if available
+                                </small>
+                            </div>
+                            
+                            <!-- Quality Filter Options -->
+                            <div style="background: #f0f8ff; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #007bff;">
+                                <h4 style="margin: 0 0 10px 0; color: #007bff; font-size: 0.9em;">
+                                    <i class="fas fa-info-circle"></i> Overlap Filter Info
+                                </h4>
+                                <p style="margin: 0; color: #666; font-size: 0.9em;">
+                                    The overlap filter can be toggled on/off in the main SAM configuration above. 
+                                    When enabled, masks with more than the threshold overlap (based on mask area) will be removed. You can choose to remove either the larger or smaller mask.
+                                </p>
+                            </div>
+                        </div>
+                        
+                        <!-- Advanced Features Toggle -->
+                        <div style="margin-top: 15px; text-align: center;">
+                            <button class="btn" onclick="toggleAdvancedFeatures()" id="advancedToggle" 
+                                    style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%); font-size: 0.8em; padding: 8px 16px;">
+                                🔧 Show Advanced Options
+                            </button>
                         </div>
                     </div>
                     
+                    <!-- Always Visible: Ring Width Detection -->
                     <div class="input-group">
                         <label style="display: flex; align-items: center; gap: 8px;">
-                            <input type="checkbox" id="showDarkEdgeToggle" style="transform: scale(1.2);">
-                            <span>Show Dark Edge Preview</span>
+                            <input type="checkbox" id="showDarkEdgeToggle" checked style="transform: scale(1.2);">
+                            <span>Ring width detection</span>
                         </label>
                         <small style="color: #666; display: block; margin-top: 5px;">
-                            Highlight dark pixels around mask contours in blue (hover preview only)
+                            Detect and measure ring width around mask contours (hover preview only)
                         </small>
                         
-                        <!-- Dark Edge Preview Controls (shown when toggle is checked) -->
-                        <div id="darkEdgePreviewControls" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
+                        <!-- Ring Width Detection Controls (shown when toggle is checked) -->
+                        <div id="darkEdgePreviewControls" style="display: block; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
                             <h4 style="margin: 0 0 15px 0; font-size: 0.95em; color: #495057;">
-                                <i class="fas fa-sliders-h"></i> Dark Edge Parameters
+                                <i class="fas fa-sliders-h"></i> Ring Width Parameters
                             </h4>
                             
                             <div style="margin-bottom: 15px;">
                                 <label for="previewEdgeWidth" style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
-                                    Edge Width: <span id="previewEdgeWidthValue" style="color: #007bff;">5</span> pixels
+                                    Edge Width: <span id="previewEdgeWidthValue" style="color: #007bff;">3</span> pixels
                                 </label>
-                                <input type="range" id="previewEdgeWidth" min="1" max="100" step="1" value="5" 
+                                <input type="range" id="previewEdgeWidth" min="1" max="100" step="1" value="3" 
                                        style="width: 100%; cursor: pointer;">
                                 <div style="display: flex; justify-content: space-between; font-size: 0.85em; color: #666; margin-top: 4px;">
                                     <span>1 (Thin)</span>
@@ -862,9 +947,9 @@
                             
                             <div>
                                 <label for="previewDarknessThreshold" style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
-                                    Darkness Threshold: <span id="previewDarknessThresholdValue" style="color: #007bff;">80</span>
+                                    Darkness Threshold: <span id="previewDarknessThresholdValue" style="color: #007bff;">60</span>
                                 </label>
-                                <input type="range" id="previewDarknessThreshold" min="0" max="255" step="5" value="80" 
+                                <input type="range" id="previewDarknessThreshold" min="0" max="255" step="5" value="60" 
                                        style="width: 100%; cursor: pointer;">
                                 <div style="display: flex; justify-content: space-between; font-size: 0.85em; color: #666; margin-top: 4px;">
                                     <span>0 (Only black)</span>
@@ -878,55 +963,104 @@
                         </div>
                     </div>
                     
-                    <!-- Advanced Options -->
-                    <div id="advancedOptions" style="display: none;">
-                        <div style="margin: 15px 0;">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" id="performanceMode" style="transform: scale(1.1);">
-                                <span>Performance Mode</span>
-                            </label>
-                            <small style="color: #666; display: block; margin-top: 5px;">
-                                Optimize for speed over quality (faster processing)
-                            </small>
-                        </div>
-                        
-                        <div style="margin: 15px 0;">
-                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                <input type="checkbox" id="useGpu" checked style="transform: scale(1.1);">
-                                <span>Use GPU Acceleration</span>
-                            </label>
-                            <small style="color: #666; display: block; margin-top: 5px;">
-                                Enable GPU processing if available
-                            </small>
-                        </div>
-                        
-                        <!-- Quality Filter Options -->
-                        <div style="background: #f0f8ff; padding: 15px; border-radius: 8px; margin-top: 15px; border-left: 4px solid #007bff;">
-                            <h4 style="margin: 0 0 10px 0; color: #007bff; font-size: 0.9em;">
-                                <i class="fas fa-info-circle"></i> Overlap Filter Info
-                            </h4>
-                            <p style="margin: 0; color: #666; font-size: 0.9em;">
-                                The overlap filter can be toggled on/off in the main SAM configuration above. 
-                                When enabled, masks with more than the threshold overlap (based on mask area) will be removed. You can choose to remove either the larger or smaller mask.
-                            </p>
-                        </div>
-                    </div>
-                    
+                    <!-- Always Visible: Run SAM Segmentation Button -->
                     <button class="btn btn-primary" onclick="runSAMSegmentation()" id="segmentBtn" disabled>
                         🎯 Run SAM Segmentation
                     </button>
+                </div>
+
+                <!-- Match Panel -->
+                <div class="control-group" id="matchPanel" style="margin-top: 20px;">
+                    <h3><i class="fas fa-link"></i> Match Panel</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                        Upload two CSV files (diameter and fluorescent) to match rows based on x,y coordinates (within ±5 pixels).
+                    </p>
                     
-                    <!-- Advanced Features Toggle -->
-                    <div style="margin-top: 15px; text-align: center;">
-                        <button class="btn" onclick="toggleAdvancedFeatures()" id="advancedToggle" 
-                                style="background: linear-gradient(135deg, #6c757d 0%, #495057 100%); font-size: 0.8em; padding: 8px 16px;">
-                            🔧 Show Advanced Options
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <!-- Diameter File Row -->
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
+                                <i class="fas fa-file-csv"></i> Diameter File:
+                            </label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="file" id="diameterFileInput" accept=".csv" style="flex: 1; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 0.9em;">
+                                <button class="btn" onclick="document.getElementById('diameterFileInput').click()" style="background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white; font-size: 0.85em; padding: 8px 16px;">
+                                    <i class="fas fa-folder-open"></i> Browse
+                                </button>
+                            </div>
+                            <div id="diameterFileName" style="margin-top: 5px; font-size: 0.85em; color: #28a745; display: none;">
+                                <i class="fas fa-check-circle"></i> <span id="diameterFileNameText"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Fluorescent File Row -->
+                        <div>
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
+                                <i class="fas fa-file-csv"></i> Fluorescent File:
+                            </label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="file" id="fluorescentFileInput" accept=".csv" style="flex: 1; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 0.9em;">
+                                <button class="btn" onclick="document.getElementById('fluorescentFileInput').click()" style="background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white; font-size: 0.85em; padding: 8px 16px;">
+                                    <i class="fas fa-folder-open"></i> Browse
+                                </button>
+                            </div>
+                            <div id="fluorescentFileName" style="margin-top: 5px; font-size: 0.85em; color: #28a745; display: none;">
+                                <i class="fas fa-check-circle"></i> <span id="fluorescentFileNameText"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Match Button -->
+                    <div style="text-align: center; margin-bottom: 15px;">
+                        <button class="btn" onclick="matchFiles()" id="matchBtn" 
+                                style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; font-size: 1em; padding: 12px 30px;">
+                            <i class="fas fa-search"></i> Match
                         </button>
+                    </div>
+                    
+                    <!-- Match Results -->
+                    <div id="matchResults" style="display: none; margin-top: 20px;">
+                        <h4 style="color: #495057; margin-bottom: 15px; border-bottom: 2px solid #667eea; padding-bottom: 8px;">
+                            <i class="fas fa-chart-bar"></i> Match Results
+                        </h4>
+                        
+                        <!-- Matched Rows -->
+                        <div style="margin-bottom: 20px;">
+                            <h5 style="color: #28a745; margin-bottom: 10px;">
+                                <i class="fas fa-check-circle"></i> Matched Rows (exist in both files)
+                            </h5>
+                            <div id="matchedRows" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 6px;">
+                                <!-- Matched rows will be displayed here -->
+                            </div>
+                            <div id="matchedCount" style="margin-top: 5px; font-size: 0.85em; color: #666;"></div>
+                        </div>
+                        
+                        <!-- Only in Diameter File -->
+                        <div style="margin-bottom: 20px;">
+                            <h5 style="color: #ffc107; margin-bottom: 10px;">
+                                <i class="fas fa-exclamation-triangle"></i> Only in Diameter File
+                            </h5>
+                            <div id="onlyDiameterRows" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 6px;">
+                                <!-- Rows only in diameter file will be displayed here -->
+                            </div>
+                            <div id="onlyDiameterCount" style="margin-top: 5px; font-size: 0.85em; color: #666;"></div>
+                        </div>
+                        
+                        <!-- Only in Fluorescent File -->
+                        <div>
+                            <h5 style="color: #dc3545; margin-bottom: 10px;">
+                                <i class="fas fa-exclamation-triangle"></i> Only in Fluorescent File
+                            </h5>
+                            <div id="onlyFluorescentRows" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 6px;">
+                                <!-- Rows only in fluorescent file will be displayed here -->
+                            </div>
+                            <div id="onlyFluorescentCount" style="margin-top: 5px; font-size: 0.85em; color: #666;"></div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Pre-Segmentation Filter Panel -->
-                <div class="control-group" id="preFilterPanel" style="display: none;">
+                <div class="control-group admin-mode-only" id="preFilterPanel" style="display: none;">
                     <h3>🎨 Pre-Segmentation Filter</h3>
                     <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
                         Apply brightness, contrast, and pixel intensity filters <strong>before</strong> running SAM segmentation to improve results.
@@ -1010,7 +1144,7 @@
                 </div>
                 
                 <!-- ESRGAN Resolution Enhancement Panel -->
-                <div class="control-group" id="esrganPanel" style="display: none;">
+                <div class="control-group admin-mode-only" id="esrganPanel" style="display: none;">
                     <h3>🚀 Resolution Enhancement (ESRGAN)</h3>
                     <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
                         Enhance image resolution using AI-powered super-resolution upscaling.
@@ -1089,6 +1223,9 @@
                         </button>
                         <button class="btn" id="exportCsvBtn" onclick="exportMaskCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white;">
                             <i class="fas fa-file-csv"></i> Export CSV Data
+                        </button>
+                        <button class="btn" id="exportDiameterPredictionCsvBtn" onclick="exportDiameterPredictionCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white;">
+                            <i class="fas fa-file-csv"></i> Export diameter prediction csv
                         </button>
                     </div>
                     
@@ -1185,48 +1322,10 @@
                         <div id="conversionStatus" style="padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 0.9em; display: none;">
                             <strong>Current Conversion:</strong> <span id="conversionInfo">Not set</span>
                         </div>
-                        
-                        <!-- CSV Export with Ring Width Options -->
-                        <div style="margin-top: 20px; padding: 15px; background: #f0f8ff; border-radius: 8px; border-left: 4px solid #007bff;">
-                            <h4 style="margin: 0 0 10px 0; color: #007bff; font-size: 0.95em;">
-                                <i class="fas fa-file-csv"></i> CSV Export Options
-                            </h4>
-                            
-                            <div style="margin-bottom: 15px;">
-                                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                                    <input type="checkbox" id="includeRingWidthInCsv" style="transform: scale(1.2);">
-                                    <span style="font-weight: 500;">Include Ring Width Data</span>
-                                </label>
-                                <small style="color: #666; display: block; margin-top: 5px; margin-left: 28px;">
-                                    Add ring width, dark edge diameter, and dark ratio columns to CSV export
-                                </small>
-                            </div>
-                            
-                            <!-- Ring Width Parameters (shown when checkbox is enabled) -->
-                            <div id="ringWidthCsvParams" style="display: none; margin-top: 10px; padding: 10px; background: white; border-radius: 6px;">
-                                <div style="margin-bottom: 10px;">
-                                    <label style="font-size: 0.9em; font-weight: 500;">Edge Width: <span id="csvEdgeWidthValue">5</span> pixels</label>
-                                    <input type="range" id="csvEdgeWidth" min="1" max="100" step="1" value="5" 
-                                           style="width: 100%; cursor: pointer;"
-                                           oninput="document.getElementById('csvEdgeWidthValue').textContent = this.value">
-                                </div>
-                                <div>
-                                    <label style="font-size: 0.9em; font-weight: 500;">Darkness Threshold: <span id="csvDarknessThresholdValue">80</span></label>
-                                    <input type="range" id="csvDarknessThreshold" min="0" max="255" step="5" value="80" 
-                                           style="width: 100%; cursor: pointer;"
-                                           oninput="document.getElementById('csvDarknessThresholdValue').textContent = this.value">
-                                </div>
-                            </div>
-                            
-                            <button class="btn" onclick="exportMaskCSV()" id="unitConversionExportCsvBtn"
-                                    style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white; font-size: 0.9em;">
-                                <i class="fas fa-file-csv"></i> Export CSV with Current Settings
-                            </button>
-                        </div>
                     </div>
                     
                     <!-- Intensity Filter Panel -->
-                    <div class="control-group" id="intensityFilterPanel" style="display: none; margin-top: 20px;">
+                    <div class="control-group admin-mode-only" id="intensityFilterPanel" style="display: none; margin-top: 20px;">
                         <h3><i class="fas fa-filter"></i> Intensity Filter</h3>
                         <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
                             Filter masks based on their mean pixel intensity values. Masks outside the range will be completely removed from display.
@@ -1278,7 +1377,7 @@
                     </div>
                     
                     <!-- Circularity Filter Panel -->
-                    <div class="control-group" id="circularityFilterPanel" style="display: none; margin-top: 20px;">
+                    <div class="control-group admin-mode-only" id="circularityFilterPanel" style="display: none; margin-top: 20px;">
                         <h3><i class="fas fa-circle"></i> Circularity Filter</h3>
                         <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
                             Filter masks based on their circularity (shape roundness). Circularity ranges from 0 (irregular) to 1 (perfect circle).
@@ -1335,7 +1434,7 @@
                     </div>
                     
                     <!-- Dark Edge Filter Panel -->
-                    <div class="control-group" id="darkEdgeFilterPanel" style="display: none; margin-top: 20px;">
+                    <div class="control-group admin-mode-only" id="darkEdgeFilterPanel" style="display: none; margin-top: 20px;">
                         <h3><i class="fas fa-adjust"></i> Dark Edge Filter</h3>
                         <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
                             Filter masks based on dark pixels around their contours. Useful for removing masks with dark edges/boundaries.
@@ -1411,19 +1510,6 @@
                         </div>
                     </div>
                     
-                    <!-- Next Stage Button -->
-                    <div style="text-align: center; margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #e8f5e8 0%, #f0f8ff 100%); border-radius: 10px; border: 2px solid #28a745;">
-                        <h4 style="color: #28a745; margin-bottom: 15px;">
-                            <i class="fas fa-arrow-right"></i> Ready for Next Stage
-                        </h4>
-                        <p style="color: #495057; margin-bottom: 15px; font-size: 0.9em;">
-                            Proceed to contrast and intensity adjustment for the detected masks
-                        </p>
-                        <button class="btn btn-success" onclick="goToNextStage()" style="font-size: 1em; padding: 12px 30px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
-                            <i class="fas fa-arrow-right"></i> Go to Contrast & Intensity Stage
-                        </button>
-                    </div>
-                    
                     <div style="background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%); padding: 10px; border-radius: 6px; font-size: 0.8em;">
                         <strong>💡 Interactive Features:</strong><br>
                         • <strong>Hover</strong> over bounding boxes to see preview<br>
@@ -1490,40 +1576,6 @@
                     </div>
                 </div>
 
-                <!-- About SAM -->
-                <div class="control-group">
-                    <h3>ℹ️ About SAM</h3>
-                    <div style="font-size: 0.85em; color: #666; line-height: 1.4;">
-                        <p><strong>Segment Anything Model (SAM)</strong> by Meta AI automatically segments objects in images.</p>
-                        <br>
-                        <p><strong>Model Sizes:</strong></p>
-                        <ul style="margin-left: 15px;">
-                            <li><strong>ViT-B:</strong> Fast, good for real-time (85MB)</li>
-                            <li><strong>ViT-L:</strong> Balanced speed/quality (334MB)</li>
-                            <li><strong>ViT-H:</strong> Best quality, slower (2.4GB)</li>
-                        </ul>
-                        <br>
-                        <p><strong>Backend Options:</strong></p>
-                        <ul style="margin-left: 15px;">
-                            <li><strong>PyTorch:</strong> Default, full compatibility</li>
-                            <li><strong>ONNX:</strong> Optimized inference, faster</li>
-                            <li><strong>TensorRT:</strong> GPU-optimized, fastest</li>
-                        </ul>
-                        <br>
-                        <p><strong>Quality Filters:</strong></p>
-                        <ul style="margin-left: 15px;">
-                            <li>Edge removal (border exclusion)</li>
-                            <li>Size filtering (100-50K pixels)</li>
-                            <li>Circularity threshold (>50%)</li>
-                            <li>Stability score filtering</li>
-                        </ul>
-                        <br>
-                        <div id="systemInfo" style="background: #e3f2fd; padding: 10px; border-radius: 6px; margin-top: 10px;">
-                            <strong>🔧 System Status:</strong><br>
-                            <span id="backendStatus">Loading...</span>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <div class="image-panel">
@@ -1592,6 +1644,29 @@
         let selectedMaskIndex = -1;  // Currently selected mask
         let canvasScale = 1;  // Canvas scale factor for coordinate conversion
 
+        // Admin Mode Toggle
+        let adminModeActive = false;
+        
+        function toggleAdminMode() {
+            adminModeActive = !adminModeActive;
+            const container = document.querySelector('.container');
+            const adminBtn = document.getElementById('adminModeBtn');
+            
+            if (adminModeActive) {
+                container.classList.add('admin-mode-active');
+                adminBtn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide Admin';
+                adminBtn.style.background = 'rgba(255, 193, 7, 0.3)';
+                adminBtn.style.borderColor = 'rgba(255, 193, 7, 0.5)';
+                console.log('✅ Admin mode enabled');
+            } else {
+                container.classList.remove('admin-mode-active');
+                adminBtn.innerHTML = '<i class="fas fa-cog"></i> Admin Mode';
+                adminBtn.style.background = 'rgba(255, 255, 255, 0.2)';
+                adminBtn.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                console.log('❌ Admin mode disabled');
+            }
+        }
+
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             canvas = document.getElementById('imageCanvas');
@@ -1611,12 +1686,12 @@
             // Initialize dark edge preview controls
             initializeDarkEdgePreviewControls();
             
-            // Initialize CSV ring width checkbox
-            initializeRingWidthCsvControls();
+            // Initialize match panel file inputs
+            initializeMatchPanel();
             
         });
         
-        // Initialize dark edge preview controls
+        // Initialize ring width detection controls
         function initializeDarkEdgePreviewControls() {
             const toggle = document.getElementById('showDarkEdgeToggle');
             const controls = document.getElementById('darkEdgePreviewControls');
@@ -1625,14 +1700,19 @@
             const darknessSlider = document.getElementById('previewDarknessThreshold');
             const darknessValue = document.getElementById('previewDarknessThresholdValue');
             
+            // Show controls by default if checkbox is checked
+            if (toggle && toggle.checked) {
+                controls.style.display = 'block';
+            }
+            
             // Show/hide controls when toggle changes
             toggle.addEventListener('change', function() {
                 if (this.checked) {
                     controls.style.display = 'block';
-                    console.log('✅ Dark edge preview enabled');
+                    console.log('✅ Ring width detection enabled');
                 } else {
                     controls.style.display = 'none';
-                    console.log('❌ Dark edge preview disabled');
+                    console.log('❌ Ring width detection disabled');
                 }
             });
             
@@ -1649,24 +1729,215 @@
             });
         }
         
-        // Initialize CSV ring width controls
-        function initializeRingWidthCsvControls() {
-            const checkbox = document.getElementById('includeRingWidthInCsv');
-            const params = document.getElementById('ringWidthCsvParams');
+        // Initialize match panel file inputs
+        function initializeMatchPanel() {
+            const diameterInput = document.getElementById('diameterFileInput');
+            const fluorescentInput = document.getElementById('fluorescentFileInput');
             
-            if (checkbox && params) {
-                checkbox.addEventListener('change', function() {
-                    if (this.checked) {
-                        params.style.display = 'block';
-                        console.log('✅ Ring width will be included in CSV export');
-                    } else {
-                        params.style.display = 'none';
-                        console.log('❌ Ring width will not be included in CSV export');
+            // Handle diameter file selection
+            if (diameterInput) {
+                diameterInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        document.getElementById('diameterFileNameText').textContent = file.name;
+                        document.getElementById('diameterFileName').style.display = 'block';
+                    }
+                });
+            }
+            
+            // Handle fluorescent file selection
+            if (fluorescentInput) {
+                fluorescentInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        document.getElementById('fluorescentFileNameText').textContent = file.name;
+                        document.getElementById('fluorescentFileName').style.display = 'block';
                     }
                 });
             }
         }
-
+        
+        // Match files function
+        async function matchFiles() {
+            const diameterFile = document.getElementById('diameterFileInput').files[0];
+            const fluorescentFile = document.getElementById('fluorescentFileInput').files[0];
+            
+            if (!diameterFile || !fluorescentFile) {
+                showError('Please select both diameter and fluorescent CSV files.');
+                return;
+            }
+            
+            try {
+                // Show loading state
+                const matchBtn = document.getElementById('matchBtn');
+                const originalText = matchBtn.innerHTML;
+                matchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Matching...';
+                matchBtn.disabled = true;
+                
+                // Read files and send to backend
+                const formData = new FormData();
+                formData.append('diameter_file', diameterFile);
+                formData.append('fluorescent_file', fluorescentFile);
+                
+                const response = await fetch('/match_csv_files', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Export CSV file instead of displaying results
+                    downloadMatchResultsCSV(result);
+                    showSuccess(`Matching completed! Found ${result.matched_count} matches. CSV file downloaded.`);
+                } else {
+                    showError(result.error || 'Matching failed');
+                }
+                
+            } catch (error) {
+                console.error('Error matching files:', error);
+                showError('Network error: ' + error.message);
+            } finally {
+                // Restore button state
+                const matchBtn = document.getElementById('matchBtn');
+                if (matchBtn) {
+                    matchBtn.innerHTML = '<i class="fas fa-search"></i> Match';
+                    matchBtn.disabled = false;
+                }
+            }
+        }
+        
+        // Download match results as CSV
+        function downloadMatchResultsCSV(result) {
+            // Create CSV blob
+            const csvContent = result.csv_content;
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            
+            // Create download link
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', result.filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up
+            URL.revokeObjectURL(url);
+        }
+        
+        // Display match results (kept for potential future use)
+        function displayMatchResults(result) {
+            const resultsDiv = document.getElementById('matchResults');
+            resultsDiv.style.display = 'block';
+            
+            // Highlight columns for matched rows - key columns from diameter file
+            const highlightCols = [];
+            if (result.matched_rows && result.matched_rows.length > 0) {
+                const firstRow = result.matched_rows[0];
+                Object.keys(firstRow).forEach(col => {
+                    const colLower = col.toLowerCase();
+                    // Highlight key columns: diameter, ring width, prediction diameter
+                    if ((colLower.includes('diameter') && !colLower.includes('prediction') && !colLower.includes('edge') && !colLower.includes('fluorescent')) ||
+                        colLower.includes('ring_width') || colLower.includes('ringwidth') ||
+                        colLower.includes('prediction_diameter') || colLower.includes('predictiondiameter')) {
+                        highlightCols.push(col);
+                    }
+                });
+            }
+            
+            // Display matched rows
+            const matchedDiv = document.getElementById('matchedRows');
+            matchedDiv.innerHTML = createResultsTable(result.matched_rows, highlightCols);
+            document.getElementById('matchedCount').textContent = `Total: ${result.matched_count} rows`;
+            
+            // Display only in diameter file - highlight same columns
+            const onlyDiameterDiv = document.getElementById('onlyDiameterRows');
+            onlyDiameterDiv.innerHTML = createResultsTable(result.only_diameter_rows, highlightCols);
+            document.getElementById('onlyDiameterCount').textContent = `Total: ${result.only_diameter_count} rows`;
+            
+            // Display only in fluorescent file - no highlights
+            const onlyFluorescentDiv = document.getElementById('onlyFluorescentRows');
+            onlyFluorescentDiv.innerHTML = createResultsTable(result.only_fluorescent_rows, []);
+            document.getElementById('onlyFluorescentCount').textContent = `Total: ${result.only_fluorescent_count} rows`;
+        }
+        
+        // Create results table HTML
+        function createResultsTable(rows, highlightColumns) {
+            if (!rows || rows.length === 0) {
+                return '<p style="color: #666; font-style: italic; padding: 10px;">No rows found</p>';
+            }
+            
+            // Get all column names from first row
+            const columns = Object.keys(rows[0]);
+            
+            // Sort columns: put coordinates first, then highlighted ones, then others
+            const sortedColumns = [];
+            // Add coordinate columns first
+            ['Center_X_px', 'Center_Y_px', 'X', 'Y', 'x', 'y'].forEach(key => {
+                const found = columns.find(c => c === key || c.toLowerCase() === key.toLowerCase());
+                if (found && !sortedColumns.includes(found)) {
+                    sortedColumns.push(found);
+                }
+            });
+            // Add distance column
+            const distanceCol = columns.find(c => c.toLowerCase().includes('distance'));
+            if (distanceCol && !sortedColumns.includes(distanceCol)) {
+                sortedColumns.push(distanceCol);
+            }
+            // Add highlighted columns
+            highlightColumns.forEach(hcol => {
+                const found = columns.find(c => {
+                    const cLower = c.toLowerCase();
+                    const hLower = hcol.toLowerCase();
+                    return cLower === hLower || cLower.includes(hLower) || hLower.includes(cLower);
+                });
+                if (found && !sortedColumns.includes(found)) {
+                    sortedColumns.push(found);
+                }
+            });
+            // Add remaining columns
+            columns.forEach(col => {
+                if (!sortedColumns.includes(col)) {
+                    sortedColumns.push(col);
+                }
+            });
+            
+            let html = '<div style="overflow-x: auto;"><table style="width: 100%; border-collapse: collapse; font-size: 0.85em; min-width: 600px;">';
+            
+            // Header
+            html += '<thead><tr style="background: #e9ecef; font-weight: 600;">';
+            sortedColumns.forEach(col => {
+                const isHighlight = highlightColumns.some(hcol => {
+                    const cLower = col.toLowerCase();
+                    const hLower = hcol.toLowerCase();
+                    return cLower === hLower || cLower.includes(hLower) || hLower.includes(cLower);
+                });
+                html += `<th style="padding: 8px; border: 1px solid #dee2e6; ${isHighlight ? 'background: #fff3cd;' : ''} text-align: left; white-space: nowrap;">${col}</th>`;
+            });
+            html += '</tr></thead>';
+            
+            // Rows
+            html += '<tbody>';
+            rows.forEach((row, idx) => {
+                html += `<tr style="background: ${idx % 2 === 0 ? '#fff' : '#f8f9fa'};">`;
+                sortedColumns.forEach(col => {
+                    const isHighlight = highlightColumns.some(hcol => {
+                        const cLower = col.toLowerCase();
+                        const hLower = hcol.toLowerCase();
+                        return cLower === hLower || cLower.includes(hLower) || hLower.includes(cLower);
+                    });
+                    const value = row[col] !== undefined && row[col] !== null ? String(row[col]) : '';
+                    html += `<td style="padding: 6px; border: 1px solid #dee2e6; ${isHighlight ? 'background: #fff3cd; font-weight: 600;' : ''}">${value}</td>`;
+                });
+                html += '</tr>';
+            });
+            html += '</tbody></table></div>';
+            
+            return html;
+        }
+        
         // Load SAM configuration from server
         async function loadSAMConfiguration() {
             try {
@@ -1713,23 +1984,10 @@
             updateSystemStatus(config);
         }
 
-        // Update system status display
+        // Update system status display (removed - About SAM panel no longer exists)
         function updateSystemStatus(config) {
-            const statusElement = document.getElementById('backendStatus');
-            
-            let statusText = `Available backends: ${config.available_backends.join(', ').toUpperCase()}<br>`;
-            statusText += `Current: ${config.current_backend.toUpperCase()}<br>`;
-            
-            if (config.advanced_features_available) {
-                statusText += `Advanced features: ✅ Enabled<br>`;
-                if (config.performance_mode_available) {
-                    statusText += `Performance mode: ✅ Available`;
-                }
-            } else {
-                statusText += `Advanced features: ⚠️ PyTorch only`;
-            }
-            
-            statusElement.innerHTML = statusText;
+            // Panel removed, function kept for compatibility but does nothing
+            return;
         }
 
         // Get user-friendly backend names
@@ -2443,6 +2701,7 @@
             // Show download and CSV export buttons
             document.getElementById('downloadBtn').style.display = 'inline-block';
             document.getElementById('exportCsvBtn').style.display = 'inline-block';
+            document.getElementById('exportDiameterPredictionCsvBtn').style.display = 'inline-block';
             
             // Show intensity filter panel
             const intensityPanel = document.getElementById('intensityFilterPanel');
@@ -2599,8 +2858,8 @@
                 // Check if dark edge preview is enabled
                 const showDarkEdges = document.getElementById('showDarkEdgeToggle')?.checked || false;
                 // Use the new preview sliders (fallback to old inputs if not found)
-                const edgeWidth = parseInt(document.getElementById('previewEdgeWidth')?.value || document.getElementById('edgeWidth')?.value || 5);
-                const darknessThreshold = parseInt(document.getElementById('previewDarknessThreshold')?.value || document.getElementById('darknessThreshold')?.value || 80);
+                const edgeWidth = parseInt(document.getElementById('previewEdgeWidth')?.value || document.getElementById('edgeWidth')?.value || 3);
+                const darknessThreshold = parseInt(document.getElementById('previewDarknessThreshold')?.value || document.getElementById('darknessThreshold')?.value || 60);
                 
                 // Use mask ID for direct lookup
                 console.log(`📤 Sending preview request for mask_id: ${mask.id}, showDarkEdges: ${showDarkEdges}`);
@@ -2828,11 +3087,6 @@
         
         
         
-        
-        // Go to next stage (contrast & intensity adjustment)
-        async function goToNextStage() {
-            showAlert('Processing stage functionality has been removed', 'info');
-        }
         
         // Apply image adjustments
         async function applyImageAdjustments() {
@@ -3397,34 +3651,21 @@
 
             try {
                 // Show loading state
-                const exportBtn = document.getElementById('exportCsvBtn') || document.getElementById('unitConversionExportCsvBtn');
+                const exportBtn = document.getElementById('exportCsvBtn');
                 const originalText = exportBtn ? exportBtn.innerHTML : '';
                 if (exportBtn) {
                     exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
                     exportBtn.disabled = true;
                 }
 
-                // Get ring width export options
-                const includeRingWidth = document.getElementById('includeRingWidthInCsv')?.checked || false;
-                const edgeWidth = parseInt(document.getElementById('csvEdgeWidth')?.value || 5);
-                const darknessThreshold = parseInt(document.getElementById('csvDarknessThreshold')?.value || 80);
-
-                console.log('📤 CSV Export Options:', {
-                    includeRingWidth,
-                    edgeWidth,
-                    darknessThreshold
-                });
-
-                // Make API request to CSV export endpoint
+                // Export without ring width
                 const response = await fetch('/export_mask_csv', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        include_ring_width: includeRingWidth,
-                        edge_width: edgeWidth,
-                        darkness_threshold: darknessThreshold
+                        include_ring_width: false
                     })
                 });
 
@@ -3446,9 +3687,6 @@
                     if (result.exported_masks < result.total_masks) {
                         successMsg += ` (${result.total_masks - result.exported_masks} filtered out)`;
                     }
-                    if (includeRingWidth) {
-                        successMsg += ` with ring width data`;
-                    }
                     successMsg += '.';
                     
                     showSuccess(successMsg);
@@ -3461,9 +3699,86 @@
                 showError('Network error: ' + error.message);
             } finally {
                 // Restore button state
-                const exportBtn = document.getElementById('exportCsvBtn') || document.getElementById('unitConversionExportCsvBtn');
+                const exportBtn = document.getElementById('exportCsvBtn');
                 if (exportBtn) {
                     exportBtn.innerHTML = '<i class="fas fa-file-csv"></i> Export CSV Data';
+                    exportBtn.disabled = false;
+                }
+            }
+        }
+
+        // Export diameter prediction CSV with ring width based on Ring width detection parameters
+        async function exportDiameterPredictionCSV() {
+            if (!segmentationResults || !segmentationResults.masks) {
+                showError('No segmentation data available. Please run segmentation first.');
+                return;
+            }
+
+            try {
+                // Show loading state
+                const exportBtn = document.getElementById('exportDiameterPredictionCsvBtn');
+                const originalText = exportBtn ? exportBtn.innerHTML : '';
+                if (exportBtn) {
+                    exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+                    exportBtn.disabled = true;
+                }
+
+                // Get edge width and darkness threshold from Ring width detection controls
+                const edgeWidth = parseInt(document.getElementById('previewEdgeWidth')?.value || 3);
+                const darknessThreshold = parseInt(document.getElementById('previewDarknessThreshold')?.value || 60);
+
+                console.log('📤 Diameter Prediction CSV Export Options:', {
+                    includeRingWidth: true,
+                    edgeWidth,
+                    darknessThreshold
+                });
+
+                // Make API request to CSV export endpoint with ring width
+                const response = await fetch('/export_mask_csv', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        include_ring_width: true,
+                        edge_width: edgeWidth,
+                        darkness_threshold: darknessThreshold
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Create and download CSV file
+                    const blob = new Blob([result.data], { type: 'text/csv' });
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = result.filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+                    
+                    let successMsg = `Diameter prediction CSV exported successfully! ${result.exported_masks} active masks exported with ring width data`;
+                    if (result.exported_masks < result.total_masks) {
+                        successMsg += ` (${result.total_masks - result.exported_masks} filtered out)`;
+                    }
+                    successMsg += `. Edge width: ${edgeWidth}px, Darkness threshold: ${darknessThreshold}`;
+                    
+                    showSuccess(successMsg);
+                } else {
+                    showError(result.error || 'CSV export failed');
+                }
+
+            } catch (error) {
+                console.error('Error exporting diameter prediction CSV:', error);
+                showError('Network error: ' + error.message);
+            } finally {
+                // Restore button state
+                const exportBtn = document.getElementById('exportDiameterPredictionCsvBtn');
+                if (exportBtn) {
+                    exportBtn.innerHTML = '<i class="fas fa-file-csv"></i> Export diameter prediction csv';
                     exportBtn.disabled = false;
                 }
             }

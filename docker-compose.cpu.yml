@@ -1,0 +1,20 @@
+services:
+  sam-website:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    container_name: sam-segmentation-app-cpu
+    ports:
+      - "5013:5013"
+    volumes:
+      # Mount directories for persistence
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./templates:/app/templates
+      - ./model:/app/model
+      - ./data:/app/data:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - CUDA_VISIBLE_DEVICES=""
+    restart: unless-stopped

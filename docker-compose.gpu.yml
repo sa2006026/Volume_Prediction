@@ -1,0 +1,27 @@
+services:
+  sam-website:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sam-segmentation-app-gpu
+    ports:
+      - "5013:5013"
+    volumes:
+      # Mount directories for persistence
+      - ./uploads:/app/uploads
+      - ./results:/app/results
+      - ./templates:/app/templates
+      - ./model:/app/model
+      - ./data:/app/data:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      # Use GPU 1 from host (NVIDIA RTX A5000)
+      # NVIDIA_VISIBLE_DEVICES=1 exposes only GPU 1 to container
+      # CUDA_VISIBLE_DEVICES=0 uses the first (and only) GPU in container (which is host GPU 1)
+      - NVIDIA_VISIBLE_DEVICES=1
+      - CUDA_VISIBLE_DEVICES=0
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    # GPU configuration - use nvidia runtime
+    runtime: nvidia
+    restart: unless-stopped

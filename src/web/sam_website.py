@@ -3254,7 +3254,8 @@ if __name__ == '__main__':
     print()
     
     try:
-        app.run(host='127.0.0.1', port=5013, debug=False, use_reloader=False)
+        # Use 0.0.0.0 to allow connections from outside the container (for Docker)
+        app.run(host='0.0.0.0', port=5013, debug=False, use_reloader=False)
     except Exception as e:
         print(f"❌ Error starting server: {e}")
         import traceback

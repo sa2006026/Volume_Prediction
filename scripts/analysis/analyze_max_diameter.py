@@ -11,24 +11,24 @@ from process_droplets import process_all_slides
 
 def main():
     # Directory containing the CSV files
-    base_dir = '/home/mib/Jimmy/Volume_Prediction/csv/2025-10-09_ddPCR_pipette_1Series127'
+    base_dir = '/home/mib/Jimmy/Volume_Prediction/csv/2025-10-09_ddPCR_pipette_6Series022'
     
-    # Get all z*.csv files (z00.csv, z01.csv, etc.)
+    # Get all z*.csv files (z04.csv, z05.csv, etc.)
     all_files = sorted(glob.glob(os.path.join(base_dir, 'z*.csv')))
     
     # Filter to only include files matching the pattern z[0-9][0-9].csv
-    # Specifically: z00, z01, z02, z03, z05-z15 (as specified by user)
+    # For this folder: z04-z13
     file_paths = []
     for fp in all_files:
         base_name = os.path.basename(fp)
         # Match pattern z followed by two digits and .csv
         if base_name.startswith('z') and base_name.endswith('.csv') and len(base_name) == 7:
-            # Extract the number part (e.g., "00" from "z00.csv")
+            # Extract the number part (e.g., "04" from "z04.csv")
             try:
                 num_part = base_name[1:3]
                 num = int(num_part)
-                # Include only the files the user specified: z00, z01, z02, z03, z05-z15
-                if num in [0, 1, 2, 3] or (num >= 5 and num <= 15):
+                # Include all files in this folder: z04-z13
+                if num >= 4 and num <= 13:
                     file_paths.append(fp)
             except ValueError:
                 continue
@@ -49,7 +49,7 @@ def main():
     result_df = process_all_slides(file_paths, error_margin=10)
     
     # Export the result to a CSV file
-    output_csv_path = '/home/mib/Jimmy/Volume_Prediction/max_diameter_droplets.csv'
+    output_csv_path = '/home/mib/Jimmy/Volume_Prediction/csv/2025-10-09_ddPCR_pipette_6Series022/max_diameter_droplets.csv'
     result_df.to_csv(output_csv_path, index=False)
     print(f"\nResults exported to: {output_csv_path}")
     print(f"Total unique droplets found: {len(result_df)}")

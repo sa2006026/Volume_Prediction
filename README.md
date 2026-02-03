@@ -1,155 +1,179 @@
-# 2D to 3D Image Processing Project
+# SAM Segmentation Flask Application
 
-This project provides various tools and algorithms for extracting light intensity pixels from images, analyzing droplet rings, and performing 2D to 3D conversions.
+A web-based application for image segmentation using Meta's Segment Anything Model (SAM), with features for droplet analysis, ring width detection, and CSV data export.
 
 ## 📁 Project Structure
 
 ```
-2Dto3D_2/
-├── src/                           # Main source code
-│   ├── core/                      # Core extraction algorithms
-│   │   ├── statistical_light_extractor.py    # Statistical light extraction
-│   │   ├── adaptive_light_extraction.py      # Adaptive light extraction
-│   │   ├── high_coverage_extractor.py        # High coverage extraction
-│   │   ├── circle_extractor.py               # Circle detection
-│   │   └── droplet_ring_predictor.py         # Ring prediction
-│   ├── analysis/                  # Analysis and measurement tools
-│   │   ├── max_distance_finder.py            # Distance analysis
-│   │   ├── simple_max_distance.py            # Simple distance analysis
-│   │   ├── ring_width_analyzer.py            # Ring width analysis
-│   │   ├── simple_ring_analyzer.py           # Simple ring analysis
-│   │   └── circle_drawer.py                  # Circle visualization
-│   ├── utils/                     # Utility functions (empty)
-│   └── web/                       # Web server components
-│       ├── pixel_removal_server.py           # Interactive web server
-│       └── test_server.py                    # Server testing
-├── tools/                         # Standalone tools and demos
-│   ├── demo.py                    # Basic usage demonstration
-│   ├── simple_statistical_usage.py           # Simple usage examples
-│   ├── parameter_tuning_demo.py              # Parameter tuning demo
-│   └── multiplier_comparison.py              # Compare multipliers
-├── tests/                         # Test scripts
-│   ├── test_extraction.py         # Extraction testing
-│   ├── overfocus_1_multiplier_test.py        # Overfocus testing
-│   └── adaptive_multiplier_test.py           # Adaptive testing
+Volume_Prediction/
+├── src/                          # Source code
+│   ├── web/                      # Web application
+│   │   └── sam_website.py       # Main Flask application
+│   ├── core/                     # Core analysis modules
+│   │   ├── sam_analyzer.py       # SAM integration
+│   │   ├── ring_width_analyzer.py
+│   │   └── ...
+│   ├── analysis/                 # Analysis tools
+│   └── utils/                    # Utility functions
+│
+├── templates/                     # HTML templates
+│   └── sam_website.html          # Main web interface
+│
+├── scripts/                       # Executable scripts
+│   ├── docker_start.sh           # Start Docker container
+│   ├── start_sam_cpu_mode.sh     # Start Flask in CPU mode
+│   ├── start_sam_with_gpu1.sh    # Start Flask on GPU 1
+│   ├── cloudflare/                # Cloudflare tunnel scripts
+│   │   ├── setup_cloudflare_tunnel.sh
+│   │   ├── start_cloudflare_tunnel.sh
+│   │   └── find_my_ip.sh
+│   ├── analysis/                  # Analysis scripts
+│   │   ├── analyze_droplets.py
+│   │   ├── match_droplets.py
+│   │   └── ...
+│   └── utils/                     # Utility scripts
+│
 ├── docs/                          # Documentation
-│   ├── USER_MANUAL.md             # User manual
-│   ├── EXTRACTION_METHODS_EXPLAINED.md      # Technical explanations
-│   └── ADAPTIVE_EXTRACTION_EXPLAINED.md     # Adaptive methods
-├── data/                          # Input data
-│   ├── input/                     # Input images
-│   │   ├── BF image/              # Bright field images
-│   │   └── Fluorescent image/     # Fluorescent images
-│   └── sample/                    # Sample images (empty)
-├── results/                       # Generated results (organized by type)
-├── output/                        # General output files
-├── custom_output/                 # Custom output files
-├── templates/                     # Web templates
-│   └── pixel_removal.html         # Pixel removal interface
-├── config/                        # Configuration files
-│   └── server.log                 # Server logs
-└── requirements.txt               # Python dependencies
+│   ├── features/                  # Feature documentation
+│   ├── deployment/                # Deployment guides
+│   └── guides/                    # User guides
+│
+├── tests/                         # Test files
+│   ├── test_overlap_filter_modes.py
+│   └── ...
+│
+├── docker/                        # Docker-related files (optional)
+├── data/                          # Input data (read-only in Docker)
+├── model/                         # SAM model files
+├── uploads/                       # User uploads (persistent)
+├── results/                       # Segmentation results (persistent)
+│
+├── Dockerfile                     # GPU Docker image
+├── Dockerfile.cpu                 # CPU Docker image
+├── docker-compose.yml             # Default Docker Compose
+├── docker-compose.gpu.yml         # GPU Docker Compose
+├── docker-compose.cpu.yml         # CPU Docker Compose
+├── .dockerignore                  # Docker ignore patterns
+├── requirements.txt               # Python dependencies
+└── README.md                      # This file
 ```
 
 ## 🚀 Quick Start
 
-### Core Extraction Algorithms
+### Option 1: Using Docker (Recommended)
 
 ```bash
-# Statistical light extraction
-python3 src/core/statistical_light_extractor.py data/input/overfocus.jpg --method basic --std-multiplier 2.0
+# Start with GPU support
+./scripts/docker_start.sh gpu
 
-# Adaptive light extraction
-python3 src/core/adaptive_light_extraction.py data/input/overfocus.jpg --sensitivity 0.5
-
-# High coverage extraction
-python3 src/core/high_coverage_extractor.py
+# Or start with CPU only
+./scripts/docker_start.sh cpu
 ```
 
-### Analysis Tools
+Access the application at: `http://localhost:5013`
+
+### Option 2: Direct Python
 
 ```bash
-# Distance analysis
-python3 src/analysis/max_distance_finder.py data/input/overfocus.jpg
+# GPU mode (default)
+python3 src/web/sam_website.py
 
-# Ring analysis
-python3 src/analysis/ring_width_analyzer.py data/input/overfocus.jpg
+# CPU mode
+./scripts/start_sam_cpu_mode.sh
 
-# Circle detection
-python3 src/core/circle_extractor.py data/input/overfocus.jpg
+# Use specific GPU
+./scripts/start_sam_with_gpu1.sh
 ```
 
-### Web Interface
+## 🌐 Public Access (Cloudflare Tunnel)
 
+### Temporary URL (Testing)
 ```bash
-# Start the interactive pixel removal server
-python3 src/web/pixel_removal_server.py
-
-# Test the server
-python3 src/web/test_server.py
+./scripts/cloudflare/start_cloudflare_tunnel.sh
 ```
 
-### Demos and Tools
-
+### Permanent URL (Production)
 ```bash
-# Basic usage demo
-python3 tools/demo.py
-
-# Parameter tuning demonstration
-python3 tools/parameter_tuning_demo.py
-
-# Compare different multipliers
-python3 tools/multiplier_comparison.py
+./scripts/cloudflare/setup_cloudflare_tunnel.sh
 ```
+
+See `docs/deployment/` for detailed setup instructions.
 
 ## 📖 Documentation
 
-- **[User Manual](docs/USER_MANUAL.md)** - Comprehensive usage guide
-- **[Extraction Methods](docs/EXTRACTION_METHODS_EXPLAINED.md)** - Technical explanation of extraction methods
-- **[Adaptive Methods](docs/ADAPTIVE_EXTRACTION_EXPLAINED.md)** - Adaptive extraction techniques
+- **Features**: `docs/features/` - Feature documentation and guides
+- **Deployment**: `docs/deployment/` - Docker and Cloudflare setup
+- **User Guides**: `docs/guides/` - Usage guides and workflows
 
-## 🔧 Dependencies
+## 🔧 Key Features
 
-Install required packages:
+- **SAM Segmentation**: Interactive image segmentation using Meta's SAM
+- **Admin Mode**: Toggle advanced configuration options
+- **Ring Width Detection**: Automatic dark edge detection
+- **CSV Export**: Export segmentation data with diameter predictions
+- **CSV Matching**: Match two CSV files by coordinates
+- **Multiple Filters**: Pre-segmentation, intensity, circularity, overlap filters
+- **GPU/CPU Support**: Automatic fallback to CPU if GPU unavailable
+
+## 🐳 Docker
+
+The application is containerized for easy deployment:
+
+- **GPU Version**: Uses PyTorch with CUDA support
+- **CPU Version**: CPU-only for systems without GPU
+- **Volume Mounts**: Data persists outside containers
+- **Auto-restart**: Containers restart automatically
+
+See `docs/features/DOCKER_SETUP.md` for detailed Docker documentation.
+
+## 📊 Analysis Scripts
+
+Analysis and utility scripts are located in `scripts/analysis/`:
+
+- `analyze_droplets.py` - Droplet analysis
+- `match_droplets.py` - Match droplets between images
+- `visualize_results.py` - Visualize segmentation results
+- And more...
+
+## 🧪 Testing
+
+Test files are in `tests/`:
+
+```bash
+python3 tests/test_overlap_filter_modes.py
+python3 tests/test_red_masks.py
+```
+
+## 📦 Dependencies
+
+Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Dependencies include:
-- opencv-python>=4.5.0
-- numpy>=1.19.0
-- matplotlib>=3.3.0
-- scikit-learn>=0.24.0
-- scipy>=1.6.0
+Key dependencies:
+- Flask >= 2.0.0
+- PyTorch >= 1.9.0
+- OpenCV >= 4.5.0
+- NumPy >= 1.19.0
+- segment-anything >= 1.0
 
-## 📊 Output Structure
+## 🔐 Permissions
 
-- **results/** - Organized by processing type (e.g., `circle_extraction/`, `ring_analysis/`)
-- **output/** - General output files
-- **custom_output/** - User-defined custom outputs
-
-## 🧪 Testing
-
-Run tests to verify functionality:
+If you encounter Docker permission issues:
 
 ```bash
-# Basic extraction test
-python3 tests/test_extraction.py
-
-# Multiplier tests
-python3 tests/overfocus_1_multiplier_test.py
-python3 tests/adaptive_multiplier_test.py
+sudo usermod -aG docker $USER
+# Then log out and back in
 ```
 
-## 🌐 Web Interface
+See `docs/features/DOCKER_PERMISSIONS_FIX.md` for details.
 
-The project includes an interactive web interface for pixel removal:
+## 📝 License
 
-1. Start the server: `python3 src/web/pixel_removal_server.py`
-2. Open your browser to `http://localhost:5000`
-3. Upload an image and interactively select regions to remove
+[Add your license information here]
 
-## 📈 Image Paths
+## 🤝 Contributing
 
-All scripts now reference images in the `data/input/` directory. Update image paths in scripts if your images are located elsewhere.
+[Add contribution guidelines here]
