@@ -170,7 +170,7 @@ class SAMWebEngine:
             alpha=0.3
         )
     
-    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80, use_cache: bool = True):
+    def extract_dark_edge_pixels(self, mask_id: int, edge_width: int = 3, darkness_threshold: int = 60, use_cache: bool = True):
         """Extract dark pixels around the edge/contour of a specific mask and compute statistics including ring width.
         
         Args:
@@ -194,6 +194,8 @@ class SAMWebEngine:
         if self.sam_analyzer is None or mask_id >= len(self.sam_analyzer.masks):
             return None
         mask = self.sam_analyzer.masks[mask_id]
+        mask_stats = self.sam_analyzer.mask_statistics[mask_id]
+        
         binary_mask = (mask > 0).astype(np.uint8)
         contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         if not contours:
@@ -203,16 +205,41 @@ class SAMWebEngine:
         eroded = cv2.erode(binary_mask, kernel, iterations=1)
         edge_region = dilated - eroded
         
-        # IMPORTANT FIX: Exclude pixels that belong to OTHER masks
+        # YOUR BRILLIANT IDEA: Constrain dark ring to bounding box to prevent overlap with other droplets
+        # Get bounding box of the current mask
+        bbox = mask_stats['bounding_box']  # [x, y, w, h]
+        x1, y1, w, h = bbox
+        x2, y2 = x1 + w, y1 + h
+        
+        # Create bounding box mask (same size as image)
+        bbox_mask = np.zeros_like(binary_mask, dtype=np.uint8)
+        bbox_mask[y1:y2, x1:x2] = 1
+        
+        # First: Constrain edge region to bounding box (primary constraint)
+        edge_region_in_bbox = edge_region & bbox_mask
+        
+        # Second: Exclude pixels that belong to OTHER masks (additional safety)
         # This prevents the dark edge from extending into neighboring masks
         other_masks_combined = np.zeros_like(binary_mask, dtype=np.uint8)
+        other_bboxes_combined = np.zeros_like(binary_mask, dtype=np.uint8)
+        
         for i, other_mask in enumerate(self.sam_analyzer.masks):
             if i != mask_id:  # Skip the current mask
+                # Exclude other mask pixels
                 other_masks_combined = np.maximum(other_masks_combined, (other_mask > 0).astype(np.uint8))
+                
+                # YOUR EXCELLENT ADDITION: Also exclude other masks' bounding boxes
+                # This creates a safety margin so dark ring can't even touch other bboxes
+                other_stats = self.sam_analyzer.mask_statistics[i]
+                other_bbox = other_stats['bounding_box']
+                ox1, oy1, ow, oh = other_bbox
+                ox2, oy2 = ox1 + ow, oy1 + oh
+                other_bboxes_combined[oy1:oy2, ox1:ox2] = 1
         
-        # Remove edge pixels that overlap with other masks
-        edge_region_cleaned = edge_region.copy()
+        # Remove edge pixels that overlap with other masks OR their bounding boxes
+        edge_region_cleaned = edge_region_in_bbox.copy()
         edge_region_cleaned[other_masks_combined > 0] = 0
+        edge_region_cleaned[other_bboxes_combined > 0] = 0
         
         gray_image = cv2.cvtColor(self.current_image, cv2.COLOR_BGR2GRAY)
         dark_pixels_mask = np.zeros_like(gray_image, dtype=np.uint8)
@@ -222,16 +249,23 @@ class SAMWebEngine:
         # Debug logging
         edge_region_count = np.count_nonzero(edge_region_cleaned)
         dark_candidates = np.count_nonzero(gray_image[edge_region_cleaned > 0] < darkness_threshold)
-        overlap_removed = np.count_nonzero(edge_region) - edge_region_count
-        print(f"   📊 Edge region pixels: {edge_region_count} (removed {overlap_removed} overlapping with other masks)")
+        
+        bbox_removed = np.count_nonzero(edge_region) - np.count_nonzero(edge_region_in_bbox)
+        mask_overlap_removed = np.count_nonzero(edge_region_in_bbox & other_masks_combined)
+        bbox_overlap_removed = np.count_nonzero(edge_region_in_bbox & other_bboxes_combined)
+        total_overlap_removed = mask_overlap_removed + bbox_overlap_removed
+        
+        print(f"   📦 Own bbox: ({x1},{y1}) to ({x2},{y2}) - removed {bbox_removed} pixels outside own bbox")
+        print(f"   🚫 Excluded: {mask_overlap_removed} pixels overlapping other masks")
+        print(f"   🚫 Excluded: {bbox_overlap_removed} pixels overlapping other bboxes (safety margin)")
+        print(f"   📊 Final edge region: {edge_region_count} clean pixels")
         print(f"   📊 Dark pixels found (< {darkness_threshold}): {dark_candidates}")
         # Count dark/edge pixels and ratio
         dark_pixel_count = np.count_nonzero(dark_pixels_mask)
         edge_pixel_count = np.count_nonzero(edge_region_cleaned)
         dark_ratio = dark_pixel_count / edge_pixel_count if edge_pixel_count > 0 else 0
         # Calculate diameter and ring width
-        # Mask center
-        mask_stats = self.sam_analyzer.mask_statistics[mask_id]
+        # Mask center (mask_stats already retrieved above)
         center_x, center_y = mask_stats['center_x'], mask_stats['center_y']
         
         # Calculate dark edge diameter using contour-based circle fitting for accuracy
@@ -305,7 +339,7 @@ class SAMWebEngine:
         
         return result
     
-    def create_dark_edge_preview(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80, preview_size: tuple = (200, 200)):
+    def create_dark_edge_preview(self, mask_id: int, edge_width: int = 3, darkness_threshold: int = 60, preview_size: tuple = (200, 200)):
         """Create a preview image showing both the mask (red) and dark edge pixels (blue).
         
         Args:
@@ -1220,7 +1254,7 @@ class SAMWebEngine:
         
         return enhanced_image
     
-    def get_dark_edge_data_with_units(self, mask_id: int, edge_width: int = 5, darkness_threshold: int = 80):
+    def get_dark_edge_data_with_units(self, mask_id: int, edge_width: int = 3, darkness_threshold: int = 60):
         """Get dark edge data with unit conversion applied if conversion is enabled.
         
         Args:
@@ -1681,8 +1715,8 @@ def get_mask_preview():
     try:
         data = request.get_json()
         show_dark_edges = data.get('show_dark_edges', False)
-        edge_width = data.get('edge_width', 5)
-        darkness_threshold = data.get('darkness_threshold', 80)
+        edge_width = data.get('edge_width', 3)
+        darkness_threshold = data.get('darkness_threshold', 60)
         
         # Support both coordinate-based and ID-based lookup
         if 'mask_id' in data:
@@ -2702,8 +2736,8 @@ def apply_dark_edge_filter():
     """Filter masks based on dark edge pixel ratio"""
     try:
         data = request.get_json()
-        edge_width = data.get('edge_width', 5)
-        darkness_threshold = data.get('darkness_threshold', 80)
+        edge_width = data.get('edge_width', 3)
+        darkness_threshold = data.get('darkness_threshold', 60)
         min_dark_ratio = data.get('min_dark_ratio', 0.0)
         max_dark_ratio = data.get('max_dark_ratio', 1.0)
         
@@ -2829,8 +2863,8 @@ def export_mask_csv():
         # Get optional ring width parameters from request
         data = request.get_json() or {}
         include_ring_width = data.get('include_ring_width', False)
-        edge_width = int(data.get('edge_width', 5))
-        darkness_threshold = int(data.get('darkness_threshold', 80))
+        edge_width = int(data.get('edge_width', 3))
+        darkness_threshold = int(data.get('darkness_threshold', 60))
         
         # Create CSV content - only export active masks (not filtered out)
         csv_lines = []
@@ -2878,6 +2912,10 @@ def export_mask_csv():
                         ring_width = dark_edge_data.get('ring_width', 0)
                         dark_edge_diameter = dark_edge_data.get('dark_edge_diameter', 0)
                         dark_ratio = dark_edge_data.get('dark_ratio', 0)
+                        
+                        # Ensure ring width is not negative (set to 0 if < 0)
+                        if ring_width < 0:
+                            ring_width = 0
                 
                 # Convert to units if conversion is enabled (dark edge data already converted if include_ring_width)
                 if use_units:
