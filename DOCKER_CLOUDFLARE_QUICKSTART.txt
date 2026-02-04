@@ -1,0 +1,65 @@
+mamba activate myenv
+
+================================================================================
+  DOCKER + CLOUDFLARE QUICK START - mibseg.com
+================================================================================
+
+QUICK START (MANUAL):
+--------------------
+Terminal 1:  ./scripts/docker_start.sh gpu
+Terminal 2:  cloudflared tunnel run sam-website
+nohup cloudflared tunnel run sam-website > ~/cloudflared.log 2>&1 &
+Access:      https://mibseg.com
+
+rebuild the docker: docker compose -f docker-compose.gpu.yml up -d --build
+
+stop the cloudflare: pkill -f "cloudflared tunnel run sam-website"
+stop docker: docker compose -f docker-compose.gpu.yml down
+
+BACKGROUND SERVICES (SURVIVES TERMINAL CLOSURE):
+------------------------------------------------
+1. Start Docker:
+   ./scripts/docker_start.sh gpu
+
+2. Setup Cloudflare service (one-time):
+   mkdir -p ~/.config/systemd/user
+   cat > ~/.config/systemd/user/cloudflared.service << 'EOF'
+   [Unit]
+   Description=Cloudflare Tunnel for mibseg.com
+   After=network.target docker.service
+   [Service]
+   Type=simple
+   ExecStart=/usr/bin/cloudflared tunnel run sam-website
+   Restart=always
+   RestartSec=10
+   Environment="HOME=/home/mib"
+   [Install]
+   WantedBy=default.target
+   EOF
+   systemctl --user daemon-reload
+   systemctl --user enable cloudflared
+   systemctl --user start cloudflared
+
+
+VERIFY:
+-------
+docker ps | grep sam-segmentation-app-gpu
+systemctl --user status cloudflared
+curl https://mibseg.com
+
+
+MANAGE:
+-------
+Start:   systemctl --user start cloudflared
+Stop:    systemctl --user stop cloudflared
+Restart: systemctl --user restart cloudflared
+Logs:    journalctl --user -u cloudflared -f
+
+
+For detailed workflow, see: docs/deployment/DOCKER_CLOUDFLARE_WORKFLOW.txt
+
+================================================================================
+After updating Flask code:
+Rebuild Docker: docker compose -f docker-compose.gpu.yml up -d --build
+Cloudflare: No action needed — it keeps running
+The rebuild includes the restart, so one command handles it. Cloudflare tunnel doesn't need to be restarted for code changes.

@@ -91,6 +91,7 @@ class SAMWebEngine:
         self.current_image = None
         self.original_image = None
         self.image_path = None
+        self.image_filename = None  # Store original image filename (without path, without timestamp prefix)
         self.sam_analyzer = None
         self.current_model_size = "vit_b"
         self.current_crop_layers = 1
@@ -723,6 +724,20 @@ class SAMWebEngine:
     def load_image(self, image_path: str):
         """Load image for SAM processing with resolution optimization"""
         self.image_path = image_path
+        # Extract original filename (remove timestamp prefix if present, remove extension)
+        base_filename = os.path.basename(image_path)
+        # Remove timestamp prefix (format: YYYYMMDD_HHMMSS_filename.ext)
+        # Check if filename starts with timestamp pattern (8 digits_6 digits_)
+        parts = base_filename.split('_', 2)  # Split into max 3 parts
+        if len(parts) >= 3:
+            # Check if first two parts form a timestamp (YYYYMMDD_HHMMSS)
+            first_part = parts[0]
+            second_part = parts[1] if len(parts) > 1 else ''
+            if len(first_part) == 8 and first_part.isdigit() and len(second_part) == 6 and second_part.isdigit():
+                # Remove timestamp prefix (first two parts)
+                base_filename = '_'.join(parts[2:])
+        # Remove extension for use in CSV filenames
+        self.image_filename = os.path.splitext(base_filename)[0]
         self.original_image = cv2.imread(image_path)
         if self.original_image is None:
             raise ValueError(f"Could not load image from {image_path}")
@@ -2943,10 +2958,21 @@ def export_mask_csv():
         # Join all lines
         csv_content = "\n".join(csv_lines)
         
-        # Generate filename with timestamp and unit info
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        unit_suffix = f"_{unit_name}" if use_units else "_pixels"
-        filename = f'mask_data_filtered{unit_suffix}_{timestamp}.csv'
+        # Generate filename based on image name and export type
+        if engine.image_filename:
+            # Use image filename + export type
+            if include_ring_width:
+                filename = f'{engine.image_filename}_diameter_prediction.csv'
+            else:
+                filename = f'{engine.image_filename}_csv_data.csv'
+        else:
+            # Fallback to timestamp-based filename if no image name available
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            unit_suffix = f"_{unit_name}" if use_units else "_pixels"
+            if include_ring_width:
+                filename = f'diameter_prediction{unit_suffix}_{timestamp}.csv'
+            else:
+                filename = f'mask_data_filtered{unit_suffix}_{timestamp}.csv'
         
         return jsonify({
             'success': True,
@@ -3172,25 +3198,75 @@ def match_csv_files():
         if only_fluorescent_rows:
             all_columns.update(only_fluorescent_rows[0].keys())
         
-        # Sort columns: coordinates first, then key columns, then others
+        # Sort columns: coordinates first, then group by source (Diameter/Fluorescent)
         sorted_columns = []
+        
+        # Step 1: Add coordinate columns first
         coord_cols = ['Center_X_px', 'Center_Y_px', 'X', 'Y', 'Distance_px']
         for col in coord_cols:
             if col in all_columns:
                 sorted_columns.append(col)
                 all_columns.discard(col)
         
-        # Add key columns
-        key_keywords = ['diameter', 'ring_width', 'prediction', 'mask_id', 'mean_intensity', 'area', 'circularity']
-        for keyword in key_keywords:
-            for col in sorted(all_columns):
-                if keyword in col.lower():
-                    sorted_columns.append(col)
-                    all_columns.discard(col)
-                    break
+        # Step 2: Categorize remaining columns by source
+        diameter_columns = []
+        fluorescent_columns = []
+        other_columns = []
         
-        # Add remaining columns
-        sorted_columns.extend(sorted(all_columns))
+        # Key columns that are typically from diameter file
+        diameter_keywords = ['diameter', 'ring_width', 'ringwidth', 'prediction', 'dark_edge', 'dark_ratio', 'mask_id', 'mean_intensity', 'area', 'circularity']
+        
+        for col in all_columns:
+            col_lower = col.lower()
+            
+            # Check if it's a diameter column (has Diameter_ prefix or matches diameter keywords)
+            if col.startswith('Diameter_') or any(keyword in col_lower for keyword in diameter_keywords):
+                diameter_columns.append(col)
+            # Check if it's a fluorescent column (has Fluorescent_ prefix)
+            elif col.startswith('Fluorescent_'):
+                fluorescent_columns.append(col)
+            else:
+                other_columns.append(col)
+        
+        # Step 3: Sort within each group by importance
+        def sort_by_importance(cols):
+            """Sort columns: key columns first, then alphabetically"""
+            key_cols = []
+            other_cols = []
+            
+            key_keywords = ['diameter', 'ring_width', 'ringwidth', 'prediction', 'dark_edge', 'dark_ratio', 'mask_id', 'mean_intensity', 'area', 'circularity']
+            
+            for col in cols:
+                col_lower = col.lower()
+                if any(keyword in col_lower for keyword in key_keywords):
+                    key_cols.append(col)
+                else:
+                    other_cols.append(col)
+            
+            # Sort key columns by keyword priority
+            key_cols_sorted = []
+            for keyword in key_keywords:
+                for col in key_cols:
+                    if keyword in col.lower() and col not in key_cols_sorted:
+                        key_cols_sorted.append(col)
+            # Add any remaining key columns
+            for col in key_cols:
+                if col not in key_cols_sorted:
+                    key_cols_sorted.append(col)
+            
+            # Sort other columns alphabetically
+            other_cols.sort()
+            
+            return key_cols_sorted + other_cols
+        
+        # Add diameter columns (grouped together)
+        sorted_columns.extend(sort_by_importance(diameter_columns))
+        
+        # Add fluorescent columns (grouped together)
+        sorted_columns.extend(sort_by_importance(fluorescent_columns))
+        
+        # Add other columns
+        sorted_columns.extend(sort_by_importance(other_columns))
         
         # Write matched rows with group marker
         if matched_rows:
@@ -3204,6 +3280,10 @@ def match_csv_files():
         if only_diameter_rows:
             if csv_lines:  # Add separator if there's previous content
                 csv_lines.append('')
+                # Add separator row with dashes (one per column)
+                separator_values = ['---' for _ in sorted_columns]
+                csv_lines.append(','.join(separator_values))
+                csv_lines.append('')
             csv_lines.append('=== ONLY IN DIAMETER FILE (Total: {}) ==='.format(len(only_diameter_rows)))
             csv_lines.append(','.join([escape_csv_value(col) for col in sorted_columns]))
             for row in only_diameter_rows:
@@ -3214,6 +3294,10 @@ def match_csv_files():
         if only_fluorescent_rows:
             if csv_lines:  # Add separator if there's previous content
                 csv_lines.append('')
+                # Add separator row with dashes (one per column)
+                separator_values = ['---' for _ in sorted_columns]
+                csv_lines.append(','.join(separator_values))
+                csv_lines.append('')
             csv_lines.append('=== ONLY IN FLUORESCENT FILE (Total: {}) ==='.format(len(only_fluorescent_rows)))
             csv_lines.append(','.join([escape_csv_value(col) for col in sorted_columns]))
             for row in only_fluorescent_rows:
@@ -3222,10 +3306,43 @@ def match_csv_files():
         
         csv_content = '\n'.join(csv_lines)
         
-        # Generate filename with timestamp
-        from datetime import datetime
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f'matched_results_{timestamp}.csv'
+        # Generate filename based on input filenames
+        def clean_filename(full_filename):
+            """Extract clean filename without extension and timestamp prefix"""
+            if not full_filename:
+                return None
+            # Get base filename
+            base_filename = os.path.basename(full_filename)
+            # Remove timestamp prefix (format: YYYYMMDD_HHMMSS_filename.ext)
+            # Check if filename starts with timestamp pattern (8 digits_6 digits_)
+            parts = base_filename.split('_', 2)  # Split into max 3 parts
+            if len(parts) >= 3:
+                # Check if first two parts form a timestamp (YYYYMMDD_HHMMSS)
+                first_part = parts[0]
+                second_part = parts[1] if len(parts) > 1 else ''
+                if len(first_part) == 8 and first_part.isdigit() and len(second_part) == 6 and second_part.isdigit():
+                    # Remove timestamp prefix (first two parts)
+                    base_filename = '_'.join(parts[2:])
+            # Remove extension
+            filename_without_ext = os.path.splitext(base_filename)[0]
+            return filename_without_ext
+        
+        # Extract clean filenames from both input files
+        diameter_filename = clean_filename(diameter_file.filename)
+        fluorescent_filename = clean_filename(fluorescent_file.filename)
+        
+        # Generate output filename
+        if diameter_filename and fluorescent_filename:
+            filename = f'matched_{diameter_filename}_{fluorescent_filename}.csv'
+        elif diameter_filename:
+            filename = f'matched_{diameter_filename}.csv'
+        elif fluorescent_filename:
+            filename = f'matched_{fluorescent_filename}.csv'
+        else:
+            # Fallback to timestamp-based filename if no filenames available
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f'matched_results_{timestamp}.csv'
         
         return jsonify({
             'success': True,

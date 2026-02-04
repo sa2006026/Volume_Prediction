@@ -1,0 +1,245 @@
+================================================================================
+  DOCKER + CLOUDFLARE TUNNEL WORKFLOW - mibseg.com
+================================================================================
+
+QUICK SUMMARY:
+  1. Start Docker Container → 2. Start Cloudflare Tunnel → 3. Access https://mibseg.com
+
+================================================================================
+  ONE-TIME SETUP
+================================================================================
+
+PREREQUISITES CHECK:
+-------------------
+1. Verify Docker access (no sudo needed if in docker group)
+   $ docker ps
+
+2. Verify Cloudflare tunnel exists
+   $ cloudflared tunnel list
+   Should show: sam-website
+
+3. Verify config points to localhost:5013
+   $ cat ~/.cloudflared/config.yml
+   Should show: service: http://localhost:5013
+
+================================================================================
+  DAILY STARTUP - TWO OPTIONS
+================================================================================
+
+OPTION 1: QUICK START (MANUAL)
+------------------------------
+Terminal 1 - Start Docker:
+   $ cd /home/mib/Jimmy/Volume_Prediction
+   $ ./scripts/docker_start.sh gpu
+
+Terminal 2 - Start Cloudflare Tunnel:
+   $ cloudflared tunnel run sam-website
+
+Result: https://mibseg.com is accessible
+Note: Both stop when terminals are closed
+
+
+OPTION 2: BACKGROUND SERVICES (RECOMMENDED - SURVIVES TERMINAL CLOSURE)
+------------------------------------------------------------------------
+Step 1: Start Docker (one-time or auto-restarts)
+   $ cd /home/mib/Jimmy/Volume_Prediction
+   $ ./scripts/docker_start.sh gpu
+   ✅ Docker auto-restarts (configured in docker-compose.gpu.yml)
+
+Step 2: Setup Cloudflare as user service (one-time, no sudo)
+   $ mkdir -p ~/.config/systemd/user
+   
+   $ cat > ~/.config/systemd/user/cloudflared.service << 'EOF'
+   [Unit]
+   Description=Cloudflare Tunnel for mibseg.com
+   After=network.target docker.service
+   
+   [Service]
+   Type=simple
+   ExecStart=/usr/bin/cloudflared tunnel run sam-website
+   Restart=always
+   RestartSec=10
+   Environment="HOME=/home/mib"
+   
+   [Install]
+   WantedBy=default.target
+   EOF
+   
+   $ systemctl --user daemon-reload
+   $ systemctl --user enable cloudflared
+   $ systemctl --user start cloudflared
+
+Result: Both run in background, survive terminal closure, auto-start on login
+
+================================================================================
+  COMPLETE WORKFLOW DIAGRAM
+================================================================================
+
+1. START DOCKER
+   └─> ./scripts/docker_start.sh gpu
+       └─> Container runs on localhost:5013
+           └─> Auto-restarts if crashes ✅
+
+2. START CLOUDFLARE TUNNEL
+   └─> Option A: Manual (foreground)
+       └─> cloudflared tunnel run sam-website
+   
+   └─> Option B: Background service (recommended)
+       └─> systemctl --user start cloudflared
+           └─> Auto-restarts if crashes ✅
+           └─> Survives terminal closure ✅
+
+3. ACCESS YOUR SITE
+   └─> https://mibseg.com
+       └─> Traffic flows: Internet → Cloudflare → Tunnel → Docker → Flask
+
+================================================================================
+  VERIFICATION COMMANDS
+================================================================================
+
+Check Docker:
+   $ docker ps | grep sam-segmentation-app-gpu
+   $ curl http://localhost:5013
+
+Check Cloudflare Tunnel:
+   $ cloudflared tunnel list
+   $ systemctl --user status cloudflared  # If using service
+
+Check public access:
+   $ curl https://mibseg.com
+
+================================================================================
+  MANAGEMENT COMMANDS
+================================================================================
+
+START EVERYTHING:
+-----------------
+Docker:
+   $ cd /home/mib/Jimmy/Volume_Prediction
+   $ ./scripts/docker_start.sh gpu
+
+Cloudflare (if using service):
+   $ systemctl --user start cloudflared
+
+
+STOP EVERYTHING:
+----------------
+Docker:
+   $ docker compose -f docker-compose.gpu.yml down
+
+Cloudflare (if using service):
+   $ systemctl --user stop cloudflared
+
+
+RESTART EVERYTHING:
+-------------------
+Docker:
+   $ docker compose -f docker-compose.gpu.yml restart
+
+Cloudflare (if using service):
+   $ systemctl --user restart cloudflared
+
+
+VIEW LOGS:
+----------
+Docker logs:
+   $ docker logs -f sam-segmentation-app-gpu
+
+Cloudflare logs (if using service):
+   $ journalctl --user -u cloudflared -f
+
+================================================================================
+  QUICK REFERENCE CARD
+================================================================================
+
+Task                          Command
+─────────────────────────────────────────────────────────────────────────────
+Start Docker                  ./scripts/docker_start.sh gpu
+Start Tunnel (manual)         cloudflared tunnel run sam-website
+Start Tunnel (service)        systemctl --user start cloudflared
+Check Docker                  docker ps
+Check Tunnel                  cloudflared tunnel list
+Check Service                 systemctl --user status cloudflared
+View Docker logs              docker logs -f sam-segmentation-app-gpu
+View Tunnel logs              journalctl --user -u cloudflared -f
+Stop Docker                   docker compose -f docker-compose.gpu.yml down
+Stop Tunnel                   systemctl --user stop cloudflared
+Test locally                  curl http://localhost:5013
+Test public                   curl https://mibseg.com
+
+================================================================================
+  ARCHITECTURE FLOW
+================================================================================
+
+Internet User
+    ↓
+https://mibseg.com (Cloudflare DNS)
+    ↓
+Cloudflare Edge Network (SSL/TLS)
+    ↓
+Cloudflare Tunnel (cloudflared)
+    ↓
+localhost:5013
+    ↓
+Docker Container (sam-segmentation-app-gpu)
+    ↓
+Flask App (port 5013)
+    ↓
+SAM Segmentation Processing
+
+================================================================================
+  IMPORTANT NOTES
+================================================================================
+
+1. Docker: Already configured with 'restart: unless-stopped' - will auto-restart
+
+2. Cloudflare Tunnel: Needs to be set up as service to survive terminal closure
+
+3. Port 5013: Must be free for Docker to bind
+
+4. No sudo needed: Both can run without sudo (Docker needs docker group, 
+   Cloudflare uses user systemd)
+
+5. Auto-start: Docker auto-starts on reboot, Cloudflare service starts on login
+
+================================================================================
+  RECOMMENDED SETUP (PRODUCTION)
+================================================================================
+
+1. One-time: Setup Cloudflare as user systemd service
+2. Daily: Just start Docker (Cloudflare auto-starts on login)
+3. Result: Both run 24/7, survive terminal closure, auto-restart on failure
+
+This gives you a production-ready setup without sudo!
+
+================================================================================
+  TROUBLESHOOTING
+================================================================================
+
+Docker won't start:
+   $ docker ps                    # Check Docker permissions
+   $ lsof -i:5013                 # Check if port is in use
+   $ docker logs sam-segmentation-app-gpu  # View logs
+
+Cloudflare Tunnel won't connect:
+   $ cloudflared tunnel list      # Check tunnel is running
+   $ curl http://localhost:5013   # Check local service
+   $ cat ~/.cloudflared/config.yml  # Check config
+
+Can't access https://mibseg.com:
+   1. Verify Docker is running: docker ps
+   2. Verify local access works: curl http://localhost:5013
+   3. Verify tunnel is running: cloudflared tunnel list
+   4. Check DNS (wait 1-2 minutes for propagation): dig mibseg.com
+
+================================================================================
+  FILE LOCATIONS
+================================================================================
+
+Docker Compose:     docker-compose.gpu.yml
+Docker Script:      scripts/docker_start.sh
+Cloudflare Config:  ~/.cloudflared/config.yml
+Cloudflare Service: ~/.config/systemd/user/cloudflared.service
+Project Root:       /home/mib/Jimmy/Volume_Prediction
+
+================================================================================
