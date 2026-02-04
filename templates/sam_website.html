@@ -609,6 +609,73 @@
             display: none;
         }
 
+        /* Image tabs for multiple image switching (in preview column, outside image) */
+        .image-tabs-container {
+            margin-bottom: 10px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #e2e6ea;
+            display: none; /* Hidden by default, shown when multiple images */
+        }
+
+        .image-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .image-tab {
+            padding: 4px 8px;
+            min-width: 28px;
+            text-align: center;
+            background: #fff;
+            border: 2px solid #dee2e6;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+            transition: all 0.15s ease;
+        }
+
+        .image-tab:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+
+        .image-tab.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+            font-weight: 600;
+        }
+
+        .image-tab.active:hover {
+            background: #5568d3;
+            border-color: #5568d3;
+        }
+
+        .image-tab-close {
+            margin-left: 8px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            background: rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            font-size: 0.8em;
+        }
+
+        .image-tab-close:hover {
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .image-tab.active .image-tab-close {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .image-tab.active .image-tab-close:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
         .progress-bar {
             width: 100%;
             height: 8px;
@@ -769,11 +836,11 @@
                         </div>
                         <h3>Drop your image here or click to browse</h3>
                         <p>Supported formats: PNG, JPG, JPEG, TIFF, BMP, WebP</p>
-                        <input type="file" id="imageFile" class="file-input" accept="image/*">
+                        <input type="file" id="imageFile" class="file-input" accept="image/*" multiple>
                     </div>
                     <div style="text-align: center; margin-top: 15px;">
                         <button class="btn" onclick="document.getElementById('imageFile').click()">
-                            <i class="fas fa-folder-open"></i> Browse Files
+                            <i class="fas fa-folder-open"></i> Browse Files (Multiple Selection Supported)
                         </button>
                     </div>
                     <div id="imageInfo" style="display: none; margin-top: 15px; padding: 10px; background: #e8f5e8; border-radius: 6px; font-size: 0.85em;">
@@ -1597,6 +1664,10 @@
                         </div>
                     </div>
                     <div class="preview-area" id="previewArea">
+                        <!-- Tabs are now in the preview column, outside the image -->
+                        <div class="image-tabs-container" id="imageTabsContainer">
+                            <div class="image-tabs" id="imageTabs"></div>
+                        </div>
                         <div class="preview-header">
                             <h4>🔍 Mask Preview</h4>
                         </div>
@@ -1667,6 +1738,9 @@
             }
         }
 
+        // Track uploaded images for switching (global scope)
+        let uploadedImages = [];  // [{ id, name, imagePath, active }]
+        
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
             canvas = document.getElementById('imageCanvas');
@@ -2040,9 +2114,20 @@
             uploadArea.addEventListener('drop', (e) => {
                 e.preventDefault();
                 uploadArea.classList.remove('dragover');
-                const files = e.dataTransfer.files;
+                const files = Array.from(e.dataTransfer.files);
+                
                 if (files.length > 0) {
-                    handleFileSelect(files[0]);
+                    // Validate max 10 files
+                    if (files.length > 10) {
+                        showError('Maximum 10 images allowed');
+                        return;
+                    }
+                    
+                    if (files.length === 1) {
+                        handleFileSelect(files[0]);
+                    } else {
+                        handleMultipleFiles(files);
+                    }
                 }
             });
 
@@ -2052,7 +2137,24 @@
 
             fileInput.addEventListener('change', (e) => {
                 if (e.target.files.length > 0) {
-                    handleFileSelect(e.target.files[0]);
+                    const files = Array.from(e.target.files);
+                    
+                    // Validate max 10 files
+                    if (files.length > 10) {
+                        showError('Maximum 10 images allowed. Please select 10 or fewer images.');
+                        // Reset file input
+                        e.target.value = '';
+                        return;
+                    }
+                    
+                    // Handle multiple files
+                    if (files.length === 1) {
+                        // Single file - use existing handler
+                        handleFileSelect(files[0]);
+                    } else {
+                        // Multiple files - upload all
+                        handleMultipleFiles(files);
+                    }
                 }
             });
         }
@@ -2089,6 +2191,57 @@
             }
         }
 
+        // Handle multiple files upload
+        async function handleMultipleFiles(files) {
+            console.log(`📦 Uploading ${files.length} images...`);
+            showLoading(true);
+            updateStatus(`Uploading ${files.length} images...`);
+            
+            const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp', 'image/webp'];
+            const validFiles = files.filter(file => {
+                if (!allowedTypes.includes(file.type)) {
+                    console.warn(`⚠️ Invalid file type: ${file.name}`);
+                    return false;
+                }
+                if (file.size > 50 * 1024 * 1024) {
+                    console.warn(`⚠️ File too large: ${file.name}`);
+                    return false;
+                }
+                return true;
+            });
+            
+            if (validFiles.length === 0) {
+                showError('No valid image files selected');
+                showLoading(false);
+                return;
+            }
+            
+            if (validFiles.length !== files.length) {
+                showError(`Only ${validFiles.length} of ${files.length} files are valid`);
+            }
+            
+            // Upload files sequentially
+            let lastSuccess = false;
+            let successCount = 0;
+            for (let i = 0; i < validFiles.length; i++) {
+                updateStatus(`Uploading image ${i + 1} of ${validFiles.length}...`);
+                try {
+                    await uploadImage(validFiles[i]);
+                    lastSuccess = true;
+                    successCount++;
+                } catch (error) {
+                    console.error(`❌ Failed to upload ${validFiles[i].name}:`, error);
+                }
+            }
+            
+            if (lastSuccess) {
+                showSuccess(`Successfully uploaded ${successCount} of ${validFiles.length} image(s)`);
+            } else {
+                showError('Failed to upload images');
+            }
+            showLoading(false);
+        }
+
         // Upload image to server
         async function uploadImage(file) {
             showLoading(true);
@@ -2106,7 +2259,30 @@
                 const result = await response.json();
                 
                 if (result.success) {
+                    // Add to uploaded images list
+                    const imageId = Date.now() + '_' + Math.random().toString(36).slice(2);
+                    const imageInfo = {
+                        id: imageId,
+                        name: file.name,
+                        imagePath: result.image_path,
+                        active: true
+                    };
+                    
+                    // Mark all other images as inactive
+                    uploadedImages.forEach(img => img.active = false);
+                    
+                    // Add new image to list
+                    uploadedImages.push(imageInfo);
+                    
+                    // Limit to 10 images (remove oldest if exceeded)
+                    if (uploadedImages.length > 10) {
+                        const removed = uploadedImages.shift();
+                        console.log(`📤 Removed oldest image: ${removed.name}`);
+                    }
+                    
+                    // Update UI
                     displayImage(result.image);
+                    renderImageTabs();
                     document.getElementById('imageDimensions').textContent = 
                         `${result.dimensions.width} × ${result.dimensions.height}`;
                     document.getElementById('fileName').textContent = file.name;
@@ -2142,6 +2318,98 @@
             }
         }
 
+        // Render image tabs
+        function renderImageTabs() {
+            const container = document.getElementById('imageTabsContainer');
+            const tabsDiv = document.getElementById('imageTabs');
+            
+            if (!container || !tabsDiv) return;
+            
+            // Hide tabs if only one or no images
+            if (uploadedImages.length <= 1) {
+                container.style.display = 'none';
+                return;
+            }
+            
+            // Show tabs container
+            container.style.display = 'block';
+            
+            // Clear existing tabs
+            tabsDiv.innerHTML = '';
+            
+            // Create tab for each image as numbered buttons
+            uploadedImages.forEach((img, index) => {
+                const tab = document.createElement('div');
+                tab.className = 'image-tab' + (img.active ? ' active' : '');
+                tab.setAttribute('data-image-id', img.id);
+                
+                // Use simple numbers (1, 2, 3, ...) and tooltip for full name
+                tab.textContent = index + 1;
+                tab.title = img.name;
+                
+                // Add click handler
+                tab.addEventListener('click', () => {
+                    switchToImage(img.id);
+                });
+                
+                tabsDiv.appendChild(tab);
+            });
+        }
+        
+        // Switch to a different image
+        async function switchToImage(imageId) {
+            const img = uploadedImages.find(i => i.id === imageId);
+            if (!img) {
+                console.error('❌ Image not found:', imageId);
+                return;
+            }
+            
+            // Don't switch if already active
+            if (img.active) {
+                return;
+            }
+            
+            showLoading(true);
+            updateStatus('Switching image...');
+            
+            try {
+                const response = await fetch('/switch_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ image_path: img.imagePath })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Update active state
+                    uploadedImages.forEach(i => i.active = (i.id === imageId));
+                    
+                    // Update UI
+                    displayImage(result.image);
+                    renderImageTabs();
+                    document.getElementById('imageDimensions').textContent = 
+                        `${result.dimensions.width} × ${result.dimensions.height}`;
+                    document.getElementById('fileName').textContent = img.name;
+                    
+                    // Clear masks and reset UI
+                    masks = [];
+                    clearCanvasAndRedrawImage();
+                    
+                    showSuccess('Switched to ' + img.name);
+                } else {
+                    showError(result.error || 'Failed to switch image');
+                }
+            } catch (error) {
+                console.error('❌ Error switching image:', error);
+                showError('Network error: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+        
         // Display image on canvas
         function displayImage(imageBase64) {
             const img = new Image();

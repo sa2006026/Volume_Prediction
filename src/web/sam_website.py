@@ -1487,6 +1487,44 @@ def upload_image():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/switch_image', methods=['POST'])
+def switch_image():
+    """Switch to a previously uploaded image"""
+    try:
+        data = request.get_json()
+        image_path = data.get('image_path')
+        
+        if not image_path:
+            return jsonify({'success': False, 'error': 'No image path provided'})
+        
+        # Check if file exists
+        if not os.path.exists(image_path):
+            return jsonify({'success': False, 'error': 'Image file not found on server'})
+        
+        # Load the selected image into the engine
+        engine.load_image(image_path)
+        # Clear dark edge cache when switching images
+        engine.clear_dark_edge_cache()
+        image_base64 = engine.get_image_as_base64()
+        
+        return jsonify({
+            'success': True,
+            'image': image_base64,
+            'image_path': image_path,
+            'dimensions': {
+                'width': int(engine.current_image.shape[1]),
+                'height': int(engine.current_image.shape[0])
+            },
+            'masks': [],  # Empty mask list - frontend should clear all bounding boxes
+            'masks_count': 0,
+            'clear_and_redraw': True,  # Explicit flag for frontend to clear drawings
+            'clear_preview': True,     # Explicitly clear preview overlay as well
+            'message': 'Switched to selected image'
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/get_sam_config', methods=['GET'])
 def get_sam_config():
     """Get available SAM backends and configuration options"""
