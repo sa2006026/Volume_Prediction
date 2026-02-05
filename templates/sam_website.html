@@ -1296,9 +1296,6 @@
                         <button class="btn" id="exportCsvBtn" onclick="exportMaskCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white;">
                             <i class="fas fa-file-csv"></i> Export CSV Data
                         </button>
-                        <button class="btn" id="exportDiameterPredictionCsvBtn" onclick="exportDiameterPredictionCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white;">
-                            <i class="fas fa-file-csv"></i> Export diameter prediction csv
-                        </button>
                     </div>
                     
                     <!-- Overlap Filter Panel -->
@@ -3115,7 +3112,6 @@
             // Show download and CSV export buttons
             document.getElementById('downloadBtn').style.display = 'inline-block';
             document.getElementById('exportCsvBtn').style.display = 'inline-block';
-            document.getElementById('exportDiameterPredictionCsvBtn').style.display = 'inline-block';
             
             // Show intensity filter panel
             const intensityPanel = document.getElementById('intensityFilterPanel');
@@ -4102,15 +4098,38 @@
                     exportBtn.disabled = true;
                 }
 
-                // Export without ring width
+                // Check if ring width detection is enabled
+                const showDarkEdgeToggle = document.getElementById('showDarkEdgeToggle')?.checked || false;
+                const includeRingWidth = showDarkEdgeToggle;
+                
+                // Get ring width parameters if enabled
+                const edgeWidth = includeRingWidth ? parseInt(document.getElementById('previewEdgeWidth')?.value || 3) : null;
+                const darknessThreshold = includeRingWidth ? parseInt(document.getElementById('previewDarknessThreshold')?.value || 60) : null;
+
+                // Build request body
+                const requestBody = {
+                    include_ring_width: includeRingWidth
+                };
+                
+                // Add ring width parameters if enabled
+                if (includeRingWidth) {
+                    requestBody.edge_width = edgeWidth;
+                    requestBody.darkness_threshold = darknessThreshold;
+                }
+
+                console.log('📤 CSV Export Options:', {
+                    includeRingWidth: includeRingWidth,
+                    edgeWidth: edgeWidth,
+                    darknessThreshold: darknessThreshold
+                });
+
+                // Make API request to CSV export endpoint
                 const response = await fetch('/export_mask_csv', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        include_ring_width: false
-                    })
+                    body: JSON.stringify(requestBody)
                 });
 
                 const result = await response.json();
@@ -4127,11 +4146,16 @@
                     document.body.removeChild(link);
                     window.URL.revokeObjectURL(url);
                     
+                    // Build success message
                     let successMsg = `CSV exported successfully! ${result.exported_masks} active masks exported`;
                     if (result.exported_masks < result.total_masks) {
                         successMsg += ` (${result.total_masks - result.exported_masks} filtered out)`;
                     }
-                    successMsg += '.';
+                    if (includeRingWidth) {
+                        successMsg += ` with ring width data. Edge width: ${edgeWidth}px, Darkness threshold: ${darknessThreshold}`;
+                    } else {
+                        successMsg += '.';
+                    }
                     
                     showSuccess(successMsg);
                 } else {
@@ -4151,82 +4175,6 @@
             }
         }
 
-        // Export diameter prediction CSV with ring width based on Ring width detection parameters
-        async function exportDiameterPredictionCSV() {
-            if (!segmentationResults || !segmentationResults.masks) {
-                showError('No segmentation data available. Please run segmentation first.');
-                return;
-            }
-
-            try {
-                // Show loading state
-                const exportBtn = document.getElementById('exportDiameterPredictionCsvBtn');
-                const originalText = exportBtn ? exportBtn.innerHTML : '';
-                if (exportBtn) {
-                    exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
-                    exportBtn.disabled = true;
-                }
-
-                // Get edge width and darkness threshold from Ring width detection controls
-                const edgeWidth = parseInt(document.getElementById('previewEdgeWidth')?.value || 3);
-                const darknessThreshold = parseInt(document.getElementById('previewDarknessThreshold')?.value || 60);
-
-                console.log('📤 Diameter Prediction CSV Export Options:', {
-                    includeRingWidth: true,
-                    edgeWidth,
-                    darknessThreshold
-                });
-
-                // Make API request to CSV export endpoint with ring width
-                const response = await fetch('/export_mask_csv', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        include_ring_width: true,
-                        edge_width: edgeWidth,
-                        darkness_threshold: darknessThreshold
-                    })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    // Create and download CSV file
-                    const blob = new Blob([result.data], { type: 'text/csv' });
-                    const url = window.URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = result.filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    window.URL.revokeObjectURL(url);
-                    
-                    let successMsg = `Diameter prediction CSV exported successfully! ${result.exported_masks} active masks exported with ring width data`;
-                    if (result.exported_masks < result.total_masks) {
-                        successMsg += ` (${result.total_masks - result.exported_masks} filtered out)`;
-                    }
-                    successMsg += `. Edge width: ${edgeWidth}px, Darkness threshold: ${darknessThreshold}`;
-                    
-                    showSuccess(successMsg);
-                } else {
-                    showError(result.error || 'CSV export failed');
-                }
-
-            } catch (error) {
-                console.error('Error exporting diameter prediction CSV:', error);
-                showError('Network error: ' + error.message);
-            } finally {
-                // Restore button state
-                const exportBtn = document.getElementById('exportDiameterPredictionCsvBtn');
-                if (exportBtn) {
-                    exportBtn.innerHTML = '<i class="fas fa-file-csv"></i> Export diameter prediction csv';
-                    exportBtn.disabled = false;
-                }
-            }
-        }
 
         // Intensity Filter Functions
         async function getIntensityStatistics() {
