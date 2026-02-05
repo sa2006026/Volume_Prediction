@@ -1045,14 +1045,14 @@
                 <div class="control-group" id="matchPanel" style="margin-top: 20px;">
                     <h3><i class="fas fa-link"></i> Match Panel</h3>
                     <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
-                        Upload two CSV files (diameter and fluorescent) to match rows based on x,y coordinates (within ±5 pixels).
+                        Upload two CSV files (Brightfield and fluorescent) to match rows based on x,y coordinates (within ±5 pixels).
                     </p>
                     
                     <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                        <!-- Diameter File Row -->
+                        <!-- Brightfield File Row -->
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
-                                <i class="fas fa-file-csv"></i> Diameter File:
+                                <i class="fas fa-file-csv"></i> Brightfield File:
                             </label>
                             <div style="display: flex; gap: 10px; align-items: center;">
                                 <input type="file" id="diameterFileInput" accept=".csv" style="flex: 1; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 0.9em;">
@@ -1107,13 +1107,13 @@
                             <div id="matchedCount" style="margin-top: 5px; font-size: 0.85em; color: #666;"></div>
                         </div>
                         
-                        <!-- Only in Diameter File -->
+                        <!-- Only in Brightfield File -->
                         <div style="margin-bottom: 20px;">
                             <h5 style="color: #ffc107; margin-bottom: 10px;">
-                                <i class="fas fa-exclamation-triangle"></i> Only in Diameter File
+                                <i class="fas fa-exclamation-triangle"></i> Only in Brightfield File
                             </h5>
                             <div id="onlyDiameterRows" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 6px;">
-                                <!-- Rows only in diameter file will be displayed here -->
+                                <!-- Rows only in Brightfield file will be displayed here -->
                             </div>
                             <div id="onlyDiameterCount" style="margin-top: 5px; font-size: 0.85em; color: #666;"></div>
                         </div>
@@ -1813,7 +1813,7 @@
             const diameterInput = document.getElementById('diameterFileInput');
             const fluorescentInput = document.getElementById('fluorescentFileInput');
             
-            // Handle diameter file selection
+            // Handle Brightfield file selection
             if (diameterInput) {
                 diameterInput.addEventListener('change', function(e) {
                     const file = e.target.files[0];
@@ -1842,7 +1842,7 @@
             const fluorescentFile = document.getElementById('fluorescentFileInput').files[0];
             
             if (!diameterFile || !fluorescentFile) {
-                showError('Please select both diameter and fluorescent CSV files.');
+                showError('Please select both Brightfield and fluorescent CSV files.');
                 return;
             }
             
@@ -1911,7 +1911,7 @@
             const resultsDiv = document.getElementById('matchResults');
             resultsDiv.style.display = 'block';
             
-            // Highlight columns for matched rows - key columns from diameter file
+            // Highlight columns for matched rows - key columns from Brightfield file
             const highlightCols = [];
             if (result.matched_rows && result.matched_rows.length > 0) {
                 const firstRow = result.matched_rows[0];
@@ -1931,7 +1931,7 @@
             matchedDiv.innerHTML = createResultsTable(result.matched_rows, highlightCols);
             document.getElementById('matchedCount').textContent = `Total: ${result.matched_count} rows`;
             
-            // Display only in diameter file - highlight same columns
+            // Display only in Brightfield file - highlight same columns
             const onlyDiameterDiv = document.getElementById('onlyDiameterRows');
             onlyDiameterDiv.innerHTML = createResultsTable(result.only_diameter_rows, highlightCols);
             document.getElementById('onlyDiameterCount').textContent = `Total: ${result.only_diameter_count} rows`;
@@ -2122,9 +2122,9 @@
                 const files = Array.from(e.dataTransfer.files);
                 
                 if (files.length > 0) {
-                    // Validate max 10 files
-                    if (files.length > 10) {
-                        showError('Maximum 10 images allowed');
+                    // Validate max 6 files
+                    if (files.length > 6) {
+                        showError('Maximum 6 images allowed');
                         return;
                     }
                     
@@ -2144,9 +2144,9 @@
                 if (e.target.files.length > 0) {
                     const files = Array.from(e.target.files);
                     
-                    // Validate max 10 files
-                    if (files.length > 10) {
-                        showError('Maximum 10 images allowed. Please select 10 or fewer images.');
+                    // Validate max 6 files
+                    if (files.length > 6) {
+                        showError('Maximum 6 images allowed. Please select 6 or fewer images.');
                         // Reset file input
                         e.target.value = '';
                         return;
@@ -2175,6 +2175,15 @@
             if (file.size > 50 * 1024 * 1024) { // 50MB limit
                 showError('File size must be less than 50MB');
                 return;
+            }
+
+            // Clear previous images when uploading a new single image
+            if (uploadedImages.length > 0) {
+                console.log(`🗑️ Clearing ${uploadedImages.length} previous image(s)...`);
+                uploadedImages = [];
+                masks = [];
+                clearCanvasAndRedrawImage();
+                renderImageTabs();
             }
 
             // Update upload area to show selected file
@@ -2223,6 +2232,15 @@
             
             if (validFiles.length !== files.length) {
                 showError(`Only ${validFiles.length} of ${files.length} files are valid`);
+            }
+            
+            // Clear previous images when uploading new ones
+            if (uploadedImages.length > 0) {
+                console.log(`🗑️ Clearing ${uploadedImages.length} previous image(s)...`);
+                uploadedImages = [];
+                masks = [];
+                clearCanvasAndRedrawImage();
+                renderImageTabs();
             }
             
             // Upload files sequentially
@@ -2279,8 +2297,8 @@
                     // Add new image to list
                     uploadedImages.push(imageInfo);
                     
-                    // Limit to 10 images (remove oldest if exceeded)
-                    if (uploadedImages.length > 10) {
+                    // Limit to 6 images (remove oldest if exceeded)
+                    if (uploadedImages.length > 6) {
                         const removed = uploadedImages.shift();
                         console.log(`📤 Removed oldest image: ${removed.name}`);
                     }
@@ -2869,6 +2887,11 @@
             const minCircularity = parseFloat(document.getElementById('minCircularitySlider').value);
             const maxCircularity = parseFloat(document.getElementById('maxCircularitySlider').value);
 
+            // Get ring width detection parameters if enabled
+            const showDarkEdgeToggle = document.getElementById('showDarkEdgeToggle')?.checked || false;
+            const edgeWidth = showDarkEdgeToggle ? parseInt(document.getElementById('previewEdgeWidth')?.value || 3) : null;
+            const darknessThreshold = showDarkEdgeToggle ? parseInt(document.getElementById('previewDarknessThreshold')?.value || 60) : null;
+
             return {
                 model_size: modelSize,
                 crop_layers: cropLayers,
@@ -2881,7 +2904,11 @@
                 overlap_remove_mode: overlapRemoveMode,
                 apply_circularity_filter: applyCircularityFilter,
                 min_circularity: minCircularity,
-                max_circularity: maxCircularity
+                max_circularity: maxCircularity,
+                // Include ring width parameters for pre-calculation during segmentation
+                calculate_ring_width: showDarkEdgeToggle,
+                edge_width: edgeWidth,
+                darkness_threshold: darknessThreshold
             };
         }
 
@@ -3072,53 +3099,18 @@
         function updateResultsPanel(result) {
             document.getElementById('resultsPanel').style.display = 'block';
             
-            // Create stats cards
+            // Hide stats grid (remove all stat cards - not needed for normal users)
             const statsGrid = document.getElementById('statsGrid');
-            const activeMasks = result.summary.active_masks || result.masks_count;
-            const removedMasks = result.summary.removed_masks || 0;
-            const avgDiameter = result.summary.average_diameter || 0;
-            const processingTime = ((Date.now() - segmentationStartTime) / 1000) || 0;
-            
-            statsGrid.innerHTML = `
-                <div class="stat-card">
-                    <div class="stat-value">${result.visible_masks_count || result.masks_count}</div>
-                    <div class="stat-label">Visible Masks</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" style="color: #28a745;">${activeMasks}</div>
-                    <div class="stat-label">Active Masks</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" style="color: #dc3545;">${removedMasks}</div>
-                    <div class="stat-label">Removed Masks</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${avgDiameter.toFixed(1)}</div>
-                    <div class="stat-label">Avg Diameter (px)</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${processingTime.toFixed(1)}s</div>
-                    <div class="stat-label">Processing Time</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value">${result.parameters.model_size.toUpperCase()}</div>
-                    <div class="stat-label">SAM Model</div>
-                </div>
-            `;
-            
-            let paramSummary = `Model: ${result.parameters.model_size.toUpperCase()}, ` +
-                                `Backend: ${result.parameters.backend.toUpperCase()}, ` +
-                                `Crop Layers: ${result.parameters.crop_layers}, ` +
-                                `Points: ${result.parameters.points_per_side}`;
-            
-            if (result.parameters.performance_mode) {
-                paramSummary += `, Performance Mode: ON`;
-            }
-            if (!result.parameters.use_gpu) {
-                paramSummary += `, GPU: Disabled`;
+            if (statsGrid) {
+                statsGrid.innerHTML = ''; // Clear all stat cards
+                statsGrid.style.display = 'none'; // Hide the grid
             }
             
-            document.getElementById('parametersSummary').innerHTML = paramSummary;
+            // Hide parameters summary (not needed for normal users)
+            const parametersDisplay = document.getElementById('usedParameters');
+            if (parametersDisplay) {
+                parametersDisplay.style.display = 'none';
+            }
             
             // Show download and CSV export buttons
             document.getElementById('downloadBtn').style.display = 'inline-block';
@@ -3476,7 +3468,11 @@
                 const result = await response.json();
                 if (!result.success) {
                     console.warn('Failed to update backend mask state:', result.error);
+                    return;
                 }
+                
+                // Sync to cache after successful backend update
+                syncMaskStateToCache(maskIndex, newState);
             } catch (error) {
                 console.warn('Error updating backend mask state:', error);
             }
@@ -3798,6 +3794,32 @@
                 if (maskIndex === hoveredMaskIndex) {
                     updateMaskPreview(maskIndex);
                 }
+                
+                // Sync mask state to cached segmentationResults
+                syncMaskStateToCache(maskIndex, newState);
+            }
+        }
+
+        // Sync mask state changes to cached segmentationResults
+        function syncMaskStateToCache(maskIndex, newState) {
+            // Find the currently active image
+            const activeImage = uploadedImages.find(img => img.active);
+            if (!activeImage || !activeImage.segmentationResults) {
+                return;
+            }
+            
+            // Update the cached mask data
+            const mask = masks[maskIndex];
+            if (activeImage.segmentationResults.masks && maskIndex < activeImage.segmentationResults.masks.length) {
+                // Update the cached mask state
+                activeImage.segmentationResults.masks[maskIndex].state = newState;
+                
+                // Also update in mask_stats if it exists
+                if (activeImage.segmentationResults.mask_stats && maskIndex < activeImage.segmentationResults.mask_stats.length) {
+                    activeImage.segmentationResults.mask_stats[maskIndex].state = newState;
+                }
+                
+                console.log(`💾 Synced mask ${maskIndex} state (${newState}) to cache`);
             }
         }
 

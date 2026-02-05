@@ -1667,6 +1667,11 @@ def run_sam_segmentation():
         min_circularity = data.get('min_circularity', 0.0)
         max_circularity = data.get('max_circularity', 1.0)
         
+        # Get ring width parameters for pre-calculation
+        calculate_ring_width = data.get('calculate_ring_width', False)
+        edge_width = data.get('edge_width', 3)
+        darkness_threshold = data.get('darkness_threshold', 60)
+        
         if engine.current_image is None:
             return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
         
@@ -1687,6 +1692,20 @@ def run_sam_segmentation():
             min_circularity=min_circularity,
             max_circularity=max_circularity
         )
+        
+        # Pre-calculate ring width data if requested (makes CSV export instant)
+        if calculate_ring_width and overlay_image is not None and engine.sam_analyzer and engine.sam_analyzer.mask_statistics:
+            print(f"🔍 Pre-calculating ring width data for {len(engine.sam_analyzer.mask_statistics)} masks (edge_width={edge_width}, darkness_threshold={darkness_threshold})")
+            for i in range(len(engine.sam_analyzer.mask_statistics)):
+                # Pre-calculate and cache ring width data
+                # This populates the cache so CSV export is instant
+                engine.extract_dark_edge_pixels(
+                    i,
+                    edge_width=edge_width,
+                    darkness_threshold=darkness_threshold,
+                    use_cache=True  # Stores in cache
+                )
+            print(f"✅ Ring width data pre-calculated and cached")
         
         if overlay_image is None:
             return jsonify({
@@ -1757,6 +1776,11 @@ def run_sam_segmentation_batch():
         apply_circularity_filter = data.get('apply_circularity_filter', False)
         min_circularity = data.get('min_circularity', 0.0)
         max_circularity = data.get('max_circularity', 1.0)
+        
+        # Get ring width parameters for pre-calculation
+        calculate_ring_width = data.get('calculate_ring_width', False)
+        edge_width = data.get('edge_width', 3)
+        darkness_threshold = data.get('darkness_threshold', 60)
 
         results = []
 
@@ -1802,6 +1826,18 @@ def run_sam_segmentation_batch():
                         'message': 'No masks detected with current parameters.'
                     })
                     continue
+
+                # Pre-calculate ring width data if requested (makes CSV export instant)
+                if calculate_ring_width and engine.sam_analyzer and engine.sam_analyzer.mask_statistics:
+                    for i in range(len(engine.sam_analyzer.mask_statistics)):
+                        # Pre-calculate and cache ring width data
+                        # This populates the cache so CSV export is instant
+                        engine.extract_dark_edge_pixels(
+                            i,
+                            edge_width=edge_width,
+                            darkness_threshold=darkness_threshold,
+                            use_cache=True  # Stores in cache
+                        )
 
                 filtered_mask_stats = [
                     s for s in mask_stats
