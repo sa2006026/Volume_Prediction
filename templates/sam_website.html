@@ -2399,17 +2399,25 @@
                     // Update active state
                     uploadedImages.forEach(i => i.active = (i.id === imageId));
                     
-                    // Update UI
-                    displayImage(result.image);
-                    renderImageTabs();
+                    // Update dimensions and filename
                     document.getElementById('imageDimensions').textContent = 
                         `${result.dimensions.width} × ${result.dimensions.height}`;
                     document.getElementById('fileName').textContent = img.name;
                     
-                    // Clear masks and reset UI
+                    // Clear masks first
                     masks = [];
-                    clearCanvasAndRedrawImage();
                     
+                    // If this image has stored segmentation results, load them (which includes the overlay image)
+                    if (img.segmentationResults) {
+                        // Load the overlay image and masks together
+                        await loadSegmentationResults(img.segmentationResults);
+                    } else {
+                        // No segmentation results, just load the base image
+                        await displayImage(result.image);
+                        clearCanvasAndRedrawImage();
+                    }
+                    
+                    renderImageTabs();
                     showSuccess('Switched to ' + img.name);
                 } else {
                     showError(result.error || 'Failed to switch image');
@@ -2422,38 +2430,46 @@
             }
         }
         
-        // Display image on canvas
+        // Display image on canvas (returns a Promise)
         function displayImage(imageBase64) {
-            const img = new Image();
-            img.onload = function() {
-                // Store the image for mask drawing
-                currentImage = img;
-                
-                // Calculate display size while maintaining aspect ratio
-                const maxWidth = 1000;
-                const maxHeight = 600;
-                let { width, height } = img;
-                
-                if (width > maxWidth || height > maxHeight) {
-                    const ratio = Math.min(maxWidth / width, maxHeight / height);
-                    width *= ratio;
-                    height *= ratio;
-                }
-                
-                canvas.width = width;
-                canvas.height = height;
-                
-                // Calculate scale factor for coordinate conversion
-                canvasScale = width / img.naturalWidth;
-                
-                // Draw image
-                ctx.drawImage(img, 0, 0, width, height);
-                
-                // Show image preview container
-                document.getElementById('imagePreviewContainer').style.display = 'flex';
-                document.getElementById('welcomeMessage').style.display = 'none';
-            };
-            img.src = imageBase64;
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.onload = function() {
+                    // Store the image for mask drawing
+                    currentImage = img;
+                    
+                    // Calculate display size while maintaining aspect ratio
+                    const maxWidth = 1000;
+                    const maxHeight = 600;
+                    let { width, height } = img;
+                    
+                    if (width > maxWidth || height > maxHeight) {
+                        const ratio = Math.min(maxWidth / width, maxHeight / height);
+                        width *= ratio;
+                        height *= ratio;
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    
+                    // Calculate scale factor for coordinate conversion
+                    canvasScale = width / img.naturalWidth;
+                    
+                    // Draw image
+                    ctx.drawImage(img, 0, 0, width, height);
+                    
+                    // Show image preview container
+                    document.getElementById('imagePreviewContainer').style.display = 'flex';
+                    document.getElementById('welcomeMessage').style.display = 'none';
+                    
+                    resolve(); // Resolve when image is loaded
+                };
+                img.onerror = function() {
+                    console.error('❌ Error loading image');
+                    resolve(); // Still resolve to prevent hanging
+                };
+                img.src = imageBase64;
+            });
         }
 
         // Update display values
@@ -2901,7 +2917,8 @@
                         // Populate frontend mask array with only visible masks
                         masks = filteredMasks.map(maskData => new Mask(maskData));
                         
-                        displayImage(result.overlay_image);
+                        // Display overlay image and wait for it to load
+                        await displayImage(result.overlay_image);
                         segmentationResults = result;
                         
                         // Update results panel with filtered mask counts
@@ -2913,7 +2930,7 @@
                         maskInteractionEnabled = true;
                         canvas.style.cursor = 'pointer';
                         
-                        // Draw masks on canvas
+                        // Draw masks on canvas (image is now loaded)
                         drawMasks();
                         
                         showSuccess(result.message);
@@ -2970,18 +2987,85 @@
                     return;
                 }
 
+                // Store results for each image
+                (result.results || []).forEach(imgResult => {
+                    if (imgResult.success && imgResult.masks_found) {
+                        // Find the corresponding uploaded image
+                        const uploadedImg = uploadedImages.find(img => 
+                            img.imagePath === imgResult.image_path
+                        );
+                        if (uploadedImg) {
+                            // Store results in the uploaded image object
+                            uploadedImg.segmentationResults = {
+                                overlay_image: imgResult.overlay_image,
+                                masks: imgResult.masks || [],
+                                mask_stats: imgResult.mask_stats || [],
+                                summary: imgResult.summary,
+                                visible_masks_count: imgResult.visible_masks,
+                                total_masks: imgResult.total_masks,
+                                parameters: result.parameters
+                            };
+                        }
+                    }
+                });
+
                 const total = (result.results || []).length;
                 const successCount = (result.results || []).filter(r => r.success && r.masks_found).length;
                 const emptyCount = (result.results || []).filter(r => r.success && !r.masks_found).length;
                 const errorCount = total - successCount - emptyCount;
 
-                showSuccess(`Batch SAM completed. Success: ${successCount}, No masks: ${emptyCount}, Errors: ${errorCount}. Check console for details.`);
+                showSuccess(`Batch SAM completed. Success: ${successCount}, No masks: ${emptyCount}, Errors: ${errorCount}.`);
+
+                // Load results for currently active image
+                const activeImage = uploadedImages.find(img => img.active);
+                if (activeImage && activeImage.segmentationResults) {
+                    loadSegmentationResults(activeImage.segmentationResults);
+                }
+
+                // Update tabs to show which images have results
+                renderImageTabs();
             } catch (error) {
                 console.error('❌ Batch SAM error:', error);
                 showError('Network error: ' + error.message);
             } finally {
                 hideProgress();
             }
+        }
+
+        // Helper function to load segmentation results into the UI
+        async function loadSegmentationResults(result) {
+            if (!result || !result.masks) {
+                console.warn('⚠️ No segmentation results to load');
+                return;
+            }
+
+            segmentationStartTime = Date.now();
+
+            // Populate frontend mask array
+            masks = result.masks.map(maskData => new Mask(maskData));
+            
+            // Display overlay image and wait for it to load
+            if (result.overlay_image) {
+                await displayImage(result.overlay_image);
+            }
+            
+            // Update results panel
+            const updatedResult = {
+                ...result,
+                visible_masks_count: result.visible_masks_count || result.masks.length,
+                masks_count: result.total_masks || result.masks.length
+            };
+            updateResultsPanel(updatedResult);
+            
+            // Store full result for other functions
+            segmentationResults = updatedResult;
+            
+            // Enable mask interaction
+            maskInteractionEnabled = true;
+            canvas.style.cursor = 'pointer';
+            
+            // Draw masks on canvas (image is now loaded)
+            drawMasks();
         }
 
         // Update results panel

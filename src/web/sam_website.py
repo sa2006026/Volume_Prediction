@@ -105,6 +105,9 @@ class SAMWebEngine:
         self.last_adjusted_image = None  # Keep last adjusted image
         # Cache for dark edge data: key = (mask_id, edge_width, darkness_threshold)
         self.dark_edge_cache = {}
+        # Cache for segmentation state per image: key = image_path
+        # Stores: {'sam_analyzer': SAMAnalyzer, 'parameters': dict, 'image': np.ndarray}
+        self.segmentation_cache = {}
         os.makedirs(self.output_dir, exist_ok=True)
         
         # Initialize advanced SAM configuration if available
@@ -721,9 +724,49 @@ class SAMWebEngine:
         
         return backends
     
-    def load_image(self, image_path: str):
-        """Load image for SAM processing with resolution optimization"""
+    def load_image(self, image_path: str, restore_from_cache: bool = True):
+        """Load image for SAM processing with resolution optimization
+        
+        Args:
+            image_path: Path to the image file
+            restore_from_cache: If True, restore segmentation state from cache if available
+        """
         self.image_path = image_path
+        
+        # Check cache first if restore_from_cache is True
+        if restore_from_cache and image_path in self.segmentation_cache:
+            cache_entry = self.segmentation_cache[image_path]
+            print(f"📦 Restoring segmentation state from cache for {image_path}")
+            
+            # Restore image
+            self.original_image = cache_entry['image'].copy()
+            self.current_image = self.original_image.copy()
+            
+            # Restore SAM analyzer (this contains all masks and segmentation state)
+            self.sam_analyzer = cache_entry['sam_analyzer']
+            
+            # Restore parameters
+            params = cache_entry.get('parameters', {})
+            self.current_model_size = params.get('model_size', self.current_model_size)
+            self.current_crop_layers = params.get('crop_layers', self.current_crop_layers)
+            self.current_points_per_side = params.get('points_per_side', self.current_points_per_side)
+            self.current_backend = params.get('backend', self.current_backend)
+            self.performance_mode = params.get('performance_mode', self.performance_mode)
+            self.use_gpu = params.get('use_gpu', self.use_gpu)
+            
+            # Extract filename
+            base_filename = os.path.basename(image_path)
+            parts = base_filename.split('_', 2)
+            if len(parts) >= 3:
+                first_part = parts[0]
+                second_part = parts[1] if len(parts) > 1 else ''
+                if len(first_part) == 8 and first_part.isdigit() and len(second_part) == 6 and second_part.isdigit():
+                    base_filename = '_'.join(parts[2:])
+            self.image_filename = os.path.splitext(base_filename)[0]
+            
+            print(f"✅ Restored {len(self.sam_analyzer.masks) if self.sam_analyzer.masks else 0} masks from cache")
+            return True
+        
         # Extract original filename (remove timestamp prefix if present, remove extension)
         base_filename = os.path.basename(image_path)
         # Remove timestamp prefix (format: YYYYMMDD_HHMMSS_filename.ext)
@@ -790,9 +833,22 @@ class SAMWebEngine:
         
         # Update SAM analyzer if it exists
         if self.sam_analyzer:
-            # Reinitialize with new parameters
-            self.sam_analyzer = SAMAnalyzer()
-            self.sam_analyzer.load_image(self.current_image.copy())
+            # Check if parameters actually changed
+            params_changed = (
+                self.current_model_size != model_size or
+                self.current_crop_layers != crop_layers or
+                self.current_points_per_side != points_per_side or
+                self.current_backend != backend or
+                self.performance_mode != performance_mode or
+                self.use_gpu != use_gpu
+            )
+            
+            # Only recreate if parameters changed or if analyzer has no masks
+            # (preserve cached segmentation state if parameters match)
+            if params_changed or not self.sam_analyzer.masks:
+                # Reinitialize with new parameters
+                self.sam_analyzer = SAMAnalyzer()
+                self.sam_analyzer.load_image(self.current_image.copy())
             
             # Update the mask generator with new parameters
             if self.sam_analyzer.sam_initialized and self.sam_analyzer.sam_model:
@@ -859,7 +915,38 @@ class SAMWebEngine:
         # Get summary statistics
         summary = self.sam_analyzer.get_segmentation_summary()
         
+        # Save segmentation state to cache
+        self._save_segmentation_to_cache()
+        
         return overlay_image, summary, mask_stats
+    
+    def _save_segmentation_to_cache(self):
+        """Save current segmentation state to cache"""
+        if self.image_path and self.sam_analyzer and self.sam_analyzer.masks:
+            cache_entry = {
+                'sam_analyzer': self.sam_analyzer,  # Store reference to the analyzer with masks
+                'image': self.current_image.copy(),  # Store image copy
+                'parameters': {
+                    'model_size': self.current_model_size,
+                    'crop_layers': self.current_crop_layers,
+                    'points_per_side': self.current_points_per_side,
+                    'backend': self.current_backend,
+                    'performance_mode': self.performance_mode,
+                    'use_gpu': self.use_gpu
+                }
+            }
+            self.segmentation_cache[self.image_path] = cache_entry
+            print(f"💾 Saved segmentation state to cache for {self.image_path} ({len(self.sam_analyzer.masks)} masks)")
+    
+    def clear_segmentation_cache(self, image_path: str = None):
+        """Clear segmentation cache for a specific image or all images"""
+        if image_path:
+            if image_path in self.segmentation_cache:
+                del self.segmentation_cache[image_path]
+                print(f"🗑️ Cleared cache for {image_path}")
+        else:
+            self.segmentation_cache.clear()
+            print("🗑️ Cleared all segmentation cache")
     
     def get_mask_at_point(self, x: int, y: int):
         """Get mask information at specific coordinates"""
@@ -1501,11 +1588,17 @@ def switch_image():
         if not os.path.exists(image_path):
             return jsonify({'success': False, 'error': 'Image file not found on server'})
         
-        # Load the selected image into the engine
-        engine.load_image(image_path)
-        # Clear dark edge cache when switching images
+        # Load the selected image into the engine (will restore from cache if available)
+        engine.load_image(image_path, restore_from_cache=True)
+        # Clear dark edge cache when switching images (but keep segmentation cache)
         engine.clear_dark_edge_cache()
         image_base64 = engine.get_image_as_base64()
+        
+        # Check if segmentation state was restored from cache
+        has_cached_segmentation = (image_path in engine.segmentation_cache and 
+                                  engine.sam_analyzer and 
+                                  engine.sam_analyzer.masks and 
+                                  len(engine.sam_analyzer.masks) > 0)
         
         return jsonify({
             'success': True,
@@ -1517,6 +1610,7 @@ def switch_image():
             },
             'masks': [],  # Empty mask list - frontend should clear all bounding boxes
             'masks_count': 0,
+            'has_cached_segmentation': has_cached_segmentation,  # Indicate if backend has cached state
             'clear_and_redraw': True,  # Explicit flag for frontend to clear drawings
             'clear_preview': True,     # Explicitly clear preview overlay as well
             'message': 'Switched to selected image'
@@ -1715,13 +1809,32 @@ def run_sam_segmentation_batch():
                     ['intensity_filtered', 'overlap_filtered', 'circularity_filtered']
                 ]
 
+                # Get overlay image and mask data for this image
+                overlay_base64 = engine.get_image_as_base64()
+                
+                # Get all mask statistics with states for visible masks
+                visible_masks_data = []
+                if engine.sam_analyzer and engine.sam_analyzer.mask_statistics:
+                    for i, (mask_stat, mask_state) in enumerate(zip(
+                        engine.sam_analyzer.mask_statistics,
+                        engine.sam_analyzer.mask_states
+                    )):
+                        if mask_state not in ['intensity_filtered', 'overlap_filtered', 'circularity_filtered']:
+                            mask_info = mask_stat.copy()
+                            mask_info['state'] = mask_state
+                            mask_info['mask_id'] = i
+                            visible_masks_data.append(mask_info)
+
                 results.append({
                     'image_path': path,
                     'success': True,
                     'masks_found': True,
                     'visible_masks': len(filtered_mask_stats),
                     'total_masks': len(mask_stats),
-                    'summary': summary
+                    'summary': summary,
+                    'overlay_image': overlay_base64,  # Add overlay image
+                    'masks': visible_masks_data,  # Add mask data
+                    'mask_stats': filtered_mask_stats  # Add mask stats for compatibility
                 })
             except Exception as e:
                 results.append({
