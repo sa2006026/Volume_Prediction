@@ -1641,6 +1641,111 @@ def run_sam_segmentation():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/run_sam_segmentation_batch', methods=['POST'])
+def run_sam_segmentation_batch():
+    """Run SAM segmentation for multiple images with the same parameters"""
+    try:
+        data = request.get_json()
+        image_paths = data.get('image_paths', [])
+        if not image_paths:
+            return jsonify({'success': False, 'error': 'No image paths provided'})
+
+        # Same parameters as single-image endpoint
+        model_size = data.get('model_size', 'vit_b')
+        crop_layers = data.get('crop_layers', 1)
+        points_per_side = data.get('points_per_side', 32)
+        backend = data.get('backend', 'pytorch')
+        performance_mode = data.get('performance_mode', False)
+        use_gpu = data.get('use_gpu', True)
+        apply_overlap_filter = data.get('apply_overlap_filter', True)
+        overlap_threshold = data.get('overlap_threshold', 0.8)
+        overlap_remove_mode = data.get('overlap_remove_mode', 'larger')
+        apply_circularity_filter = data.get('apply_circularity_filter', False)
+        min_circularity = data.get('min_circularity', 0.0)
+        max_circularity = data.get('max_circularity', 1.0)
+
+        results = []
+
+        # Configure SAM once
+        engine.configure_sam_parameters(
+            model_size=model_size,
+            crop_layers=crop_layers,
+            points_per_side=points_per_side,
+            backend=backend,
+            performance_mode=performance_mode,
+            use_gpu=use_gpu
+        )
+
+        for path in image_paths:
+            if not os.path.exists(path):
+                results.append({
+                    'image_path': path,
+                    'success': False,
+                    'error': 'File not found'
+                })
+                continue
+
+            try:
+                # Load image into engine
+                engine.load_image(path)
+                engine.clear_dark_edge_cache()
+
+                # Run segmentation
+                overlay_image, summary, mask_stats = engine.perform_sam_segmentation(
+                    apply_overlap_filter=apply_overlap_filter,
+                    overlap_threshold=overlap_threshold,
+                    overlap_remove_mode=overlap_remove_mode,
+                    apply_circularity_filter=apply_circularity_filter,
+                    min_circularity=min_circularity,
+                    max_circularity=max_circularity
+                )
+
+                if overlay_image is None:
+                    results.append({
+                        'image_path': path,
+                        'success': True,
+                        'masks_found': False,
+                        'message': 'No masks detected with current parameters.'
+                    })
+                    continue
+
+                filtered_mask_stats = [
+                    s for s in mask_stats
+                    if s.get('state', 'active') not in
+                    ['intensity_filtered', 'overlap_filtered', 'circularity_filtered']
+                ]
+
+                results.append({
+                    'image_path': path,
+                    'success': True,
+                    'masks_found': True,
+                    'visible_masks': len(filtered_mask_stats),
+                    'total_masks': len(mask_stats),
+                    'summary': summary
+                })
+            except Exception as e:
+                results.append({
+                    'image_path': path,
+                    'success': False,
+                    'error': str(e)
+                })
+
+        return jsonify({
+            'success': True,
+            'results': results,
+            'parameters': {
+                'model_size': model_size,
+                'crop_layers': crop_layers,
+                'points_per_side': points_per_side,
+                'backend': backend,
+                'performance_mode': performance_mode,
+                'use_gpu': use_gpu
+            }
+        })
+
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/get_mask_info', methods=['POST'])
 def get_mask_info():
     """Get mask information at specific coordinates"""

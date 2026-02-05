@@ -1030,10 +1030,15 @@
                         </div>
                     </div>
                     
-                    <!-- Always Visible: Run SAM Segmentation Button -->
-                    <button class="btn btn-primary" onclick="runSAMSegmentation()" id="segmentBtn" disabled>
-                        🎯 Run SAM Segmentation
-                    </button>
+                    <!-- Always Visible: Run SAM Segmentation Buttons -->
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button class="btn btn-primary" onclick="runSAMSegmentation()" id="segmentBtn" disabled>
+                            🎯 Run SAM (Current Image)
+                        </button>
+                        <button class="btn btn-secondary" onclick="runSAMForAllImages()" id="batchSegmentBtn" disabled>
+                            <i class="fas fa-layer-group"></i> Run SAM for All Images
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Match Panel -->
@@ -2288,6 +2293,13 @@
                     document.getElementById('fileName').textContent = file.name;
                     document.getElementById('imageInfo').style.display = 'block';
                     document.getElementById('segmentBtn').disabled = false;
+                    
+                    // Enable batch SAM button when at least 2 images are uploaded
+                    const batchBtn = document.getElementById('batchSegmentBtn');
+                    if (batchBtn) {
+                        batchBtn.disabled = uploadedImages.length < 2;
+                    }
+                    
                     document.getElementById('welcomeMessage').style.display = 'none';
                     
                     // Show pre-segmentation filter panel
@@ -2814,53 +2826,57 @@
             document.getElementById('maxCircularitySliderValue').textContent = maxValue.toFixed(2);
         }
 
-        // Run SAM segmentation
+        // Collect SAM configuration from UI (shared by single and batch)
+        function getSamRequestConfig() {
+            const modelSize = document.getElementById('modelSize').value;
+            const cropLayers = parseInt(document.getElementById('cropLayers').value);
+            const pointsPerSide = parseInt(document.getElementById('pointsPerSide').value);
+            
+            // Get advanced parameters if available
+            let backend = 'pytorch';
+            let performanceMode = false;
+            let useGpu = true;
+            
+            if (typeof advancedFeaturesVisible !== 'undefined' && advancedFeaturesVisible) {
+                backend = document.getElementById('samBackend').value;
+                performanceMode = document.getElementById('performanceMode').checked;
+                useGpu = document.getElementById('useGpu').checked;
+            }
+
+            // Get overlap filter parameters from the main SAM configuration
+            const applyOverlapFilter = document.getElementById('enableOverlapFilter').checked;
+            const overlapThreshold = parseFloat(document.getElementById('overlapThresholdSlider').value);
+            const overlapRemoveMode = document.querySelector('input[name="overlapRemoveMode"]:checked').value;
+
+            // Get circularity filter parameters from the main SAM configuration
+            const applyCircularityFilter = document.getElementById('enableCircularityFilter').checked;
+            const minCircularity = parseFloat(document.getElementById('minCircularitySlider').value);
+            const maxCircularity = parseFloat(document.getElementById('maxCircularitySlider').value);
+
+            return {
+                model_size: modelSize,
+                crop_layers: cropLayers,
+                points_per_side: pointsPerSide,
+                backend: backend,
+                performance_mode: performanceMode,
+                use_gpu: useGpu,
+                apply_overlap_filter: applyOverlapFilter,
+                overlap_threshold: overlapThreshold,
+                overlap_remove_mode: overlapRemoveMode,
+                apply_circularity_filter: applyCircularityFilter,
+                min_circularity: minCircularity,
+                max_circularity: maxCircularity
+            };
+        }
+
+        // Run SAM segmentation (current image)
         async function runSAMSegmentation() {
             segmentationStartTime = Date.now();
             showProgress();
             updateStatus('Running SAM segmentation...');
 
             try {
-                const modelSize = document.getElementById('modelSize').value;
-                const cropLayers = parseInt(document.getElementById('cropLayers').value);
-                const pointsPerSide = parseInt(document.getElementById('pointsPerSide').value);
-                
-                // Get advanced parameters if available
-                let backend = 'pytorch';
-                let performanceMode = false;
-                let useGpu = true;
-                
-                if (advancedFeaturesVisible) {
-                    backend = document.getElementById('samBackend').value;
-                    performanceMode = document.getElementById('performanceMode').checked;
-                    useGpu = document.getElementById('useGpu').checked;
-                }
-
-                // Get overlap filter parameters from the main SAM configuration
-                const applyOverlapFilter = document.getElementById('enableOverlapFilter').checked;
-                const overlapThreshold = parseFloat(document.getElementById('overlapThresholdSlider').value);
-                const overlapRemoveMode = document.querySelector('input[name="overlapRemoveMode"]:checked').value;
-
-                // Get circularity filter parameters from the main SAM configuration
-                const applyCircularityFilter = document.getElementById('enableCircularityFilter').checked;
-                const minCircularity = parseFloat(document.getElementById('minCircularitySlider').value);
-                const maxCircularity = parseFloat(document.getElementById('maxCircularitySlider').value);
-
-                const requestData = {
-                    model_size: modelSize,
-                    crop_layers: cropLayers,
-                    points_per_side: pointsPerSide,
-                    backend: backend,
-                    performance_mode: performanceMode,
-                    use_gpu: useGpu,
-                    apply_overlap_filter: applyOverlapFilter,
-                    overlap_threshold: overlapThreshold,
-                    overlap_remove_mode: overlapRemoveMode,
-                    apply_circularity_filter: applyCircularityFilter,
-                    min_circularity: minCircularity,
-                    max_circularity: maxCircularity
-                };
-
+                const requestData = getSamRequestConfig();
                 console.log('🎯 Starting SAM segmentation with config:', requestData);
 
                 const response = await fetch('/run_sam_segmentation', {
@@ -2909,6 +2925,60 @@
                 }
             } catch (error) {
                 showError(`Network error: ${error.message}`);
+            } finally {
+                hideProgress();
+            }
+        }
+
+        // Run SAM segmentation for all uploaded images (batch)
+        async function runSAMForAllImages() {
+            if (!uploadedImages || uploadedImages.length === 0) {
+                showError('Please upload images first');
+                return;
+            }
+
+            const imagePaths = uploadedImages
+                .map(img => img.imagePath)
+                .filter(path => !!path);
+
+            if (imagePaths.length === 0) {
+                showError('No valid image paths to process');
+                return;
+            }
+
+            const requestData = getSamRequestConfig();
+            requestData.image_paths = imagePaths;
+
+            console.log('📦 Starting batch SAM segmentation for', imagePaths.length, 'images');
+            showProgress();
+            updateStatus('Running SAM segmentation for all images...');
+
+            try {
+                const response = await fetch('/run_sam_segmentation_batch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                const result = await response.json();
+                console.log('📦 Batch SAM result:', result);
+
+                if (!result.success) {
+                    showError(result.error || 'Batch segmentation failed');
+                    return;
+                }
+
+                const total = (result.results || []).length;
+                const successCount = (result.results || []).filter(r => r.success && r.masks_found).length;
+                const emptyCount = (result.results || []).filter(r => r.success && !r.masks_found).length;
+                const errorCount = total - successCount - emptyCount;
+
+                showSuccess(`Batch SAM completed. Success: ${successCount}, No masks: ${emptyCount}, Errors: ${errorCount}. Check console for details.`);
+            } catch (error) {
+                console.error('❌ Batch SAM error:', error);
+                showError('Network error: ' + error.message);
             } finally {
                 hideProgress();
             }
