@@ -1296,6 +1296,9 @@
                         <button class="btn" id="exportCsvBtn" onclick="exportMaskCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white;">
                             <i class="fas fa-file-csv"></i> Export CSV Data
                         </button>
+                        <button class="btn" id="exportAllCsvBtn" onclick="exportAllImagesCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%); color: white; margin-top: 5px;">
+                            <i class="fas fa-file-archive"></i> Export All CSV Data
+                        </button>
                     </div>
                     
                     <!-- Overlap Filter Panel -->
@@ -2422,13 +2425,18 @@
                     // Clear masks first
                     masks = [];
                     
-                    // If this image has stored segmentation results, load them (which includes the overlay image)
+                    // Display the image (overlay if segmentation exists, base if not)
+                    // The /switch_image endpoint already returns the overlay if segmentation exists
+                    await displayImage(result.image);
+                    
+                    // If this image has stored segmentation results, load masks
                     if (img.segmentationResults) {
-                        // Load the overlay image and masks together
-                        await loadSegmentationResults(img.segmentationResults);
+                        // Load masks from cached results
+                        masks = img.segmentationResults.masks.map(maskData => new Mask(maskData));
+                        updateResultsPanel();
+                        // Note: overlay is already displayed from switch_image response
                     } else {
-                        // No segmentation results, just load the base image
-                        await displayImage(result.image);
+                        // No segmentation results, just clear canvas
                         clearCanvasAndRedrawImage();
                     }
                     
@@ -2971,7 +2979,7 @@
             }
         }
 
-        // Run SAM segmentation for all uploaded images (batch)
+        // Run SAM segmentation for all uploaded images (batch) - async with polling
         async function runSAMForAllImages() {
             if (!uploadedImages || uploadedImages.length === 0) {
                 showError('Please upload images first');
@@ -2990,68 +2998,122 @@
             const requestData = getSamRequestConfig();
             requestData.image_paths = imagePaths;
 
-            console.log('📦 Starting batch SAM segmentation for', imagePaths.length, 'images');
+            console.log('📦 Starting async batch SAM segmentation for', imagePaths.length, 'images');
             showProgress();
-            updateStatus('Running SAM segmentation for all images...');
+            updateStatus('Starting batch processing...');
 
             try {
-                const response = await fetch('/run_sam_segmentation_batch', {
+                // Start batch job
+                const startResponse = await fetch('/run_sam_segmentation_batch', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(requestData)
                 });
 
-                const result = await response.json();
-                console.log('📦 Batch SAM result:', result);
-
-                if (!result.success) {
-                    showError(result.error || 'Batch segmentation failed');
+                const startResult = await startResponse.json();
+                if (!startResult.success) {
+                    showError(startResult.error || 'Failed to start batch processing');
+                    hideProgress();
                     return;
                 }
 
-                // Store results for each image
-                (result.results || []).forEach(imgResult => {
-                    if (imgResult.success && imgResult.masks_found) {
-                        // Find the corresponding uploaded image
-                        const uploadedImg = uploadedImages.find(img => 
-                            img.imagePath === imgResult.image_path
-                        );
-                        if (uploadedImg) {
-                            // Store results in the uploaded image object
-                            uploadedImg.segmentationResults = {
-                                overlay_image: imgResult.overlay_image,
-                                masks: imgResult.masks || [],
-                                mask_stats: imgResult.mask_stats || [],
-                                summary: imgResult.summary,
-                                visible_masks_count: imgResult.visible_masks,
-                                total_masks: imgResult.total_masks,
-                                parameters: result.parameters
-                            };
+                const jobId = startResult.job_id;
+                console.log('📦 Batch job started:', jobId);
+
+                // Poll for status
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const statusResponse = await fetch(`/get_batch_status/${jobId}`);
+                        const statusResult = await statusResponse.json();
+
+                        if (statusResult.success) {
+                            const progress = statusResult.progress;
+                            updateStatus(
+                                `Processing ${progress.current}/${progress.total}: ${progress.current_image || ''}`
+                            );
+
+                            if (statusResult.completed) {
+                                clearInterval(pollInterval);
+                                
+                                // Fetch results
+                                const resultsResponse = await fetch(`/get_batch_results/${jobId}`);
+                                const resultsData = await resultsResponse.json();
+
+                                if (resultsData.success) {
+                                    // Process results
+                                    (resultsData.results || []).forEach(imgResult => {
+                                        if (imgResult.success && imgResult.masks_found) {
+                                            const uploadedImg = uploadedImages.find(img => 
+                                                img.imagePath === imgResult.image_path
+                                            );
+                                            if (uploadedImg) {
+                                                // Store results WITHOUT overlay_image (load on-demand via /switch_image)
+                                                uploadedImg.segmentationResults = {
+                                                    masks: imgResult.masks || [],
+                                                    mask_stats: imgResult.mask_stats || [],
+                                                    summary: imgResult.summary,
+                                                    visible_masks_count: imgResult.visible_masks,
+                                                    total_masks: imgResult.total_masks,
+                                                    parameters: resultsData.parameters,
+                                                    image_path: imgResult.image_path
+                                                };
+                                            }
+                                        }
+                                    });
+
+                                    const total = resultsData.results.length;
+                                    const successCount = resultsData.results.filter(r => r.success && r.masks_found).length;
+                                    const emptyCount = resultsData.results.filter(r => r.success && !r.masks_found).length;
+                                    const errorCount = total - successCount - emptyCount;
+
+                                    showSuccess(`Batch SAM completed. Success: ${successCount}, No masks: ${emptyCount}, Errors: ${errorCount}.`);
+
+                                    // Load results for currently active image
+                                    const activeImage = uploadedImages.find(img => img.active);
+                                    if (activeImage && activeImage.segmentationResults) {
+                                        loadSegmentationResults(activeImage.segmentationResults);
+                                    }
+
+                                    // Update tabs to show which images have results
+                                    renderImageTabs();
+                                    
+                                    // Enable "Export All" button if there are 2+ images with results
+                                    const imagesWithResults = uploadedImages.filter(img => img.segmentationResults);
+                                    const exportAllBtn = document.getElementById('exportAllCsvBtn');
+                                    if (exportAllBtn) {
+                                        if (imagesWithResults.length >= 2) {
+                                            exportAllBtn.disabled = false;
+                                        } else {
+                                            exportAllBtn.disabled = true;
+                                        }
+                                    }
+                                } else {
+                                    showError('Failed to fetch batch results: ' + resultsData.error);
+                                }
+                                hideProgress();
+                            } else if (statusResult.status === 'error') {
+                                clearInterval(pollInterval);
+                                showError('Batch processing error: ' + (statusResult.error || 'Unknown error'));
+                                hideProgress();
+                            }
+                        } else {
+                            console.error('❌ Error polling batch status:', statusResult.error);
                         }
+                    } catch (error) {
+                        console.error('❌ Error polling batch status:', error);
                     }
-                });
+                }, 1000); // Poll every second
 
-                const total = (result.results || []).length;
-                const successCount = (result.results || []).filter(r => r.success && r.masks_found).length;
-                const emptyCount = (result.results || []).filter(r => r.success && !r.masks_found).length;
-                const errorCount = total - successCount - emptyCount;
+                // Timeout after 10 minutes
+                setTimeout(() => {
+                    clearInterval(pollInterval);
+                    showError('Batch processing timeout (10 minutes)');
+                    hideProgress();
+                }, 600000);
 
-                showSuccess(`Batch SAM completed. Success: ${successCount}, No masks: ${emptyCount}, Errors: ${errorCount}.`);
-
-                // Load results for currently active image
-                const activeImage = uploadedImages.find(img => img.active);
-                if (activeImage && activeImage.segmentationResults) {
-                    loadSegmentationResults(activeImage.segmentationResults);
-                }
-
-                // Update tabs to show which images have results
-                renderImageTabs();
             } catch (error) {
                 console.error('❌ Batch SAM error:', error);
                 showError('Network error: ' + error.message);
-            } finally {
                 hideProgress();
             }
         }
@@ -3068,9 +3130,28 @@
             // Populate frontend mask array
             masks = result.masks.map(maskData => new Mask(maskData));
             
-            // Display overlay image and wait for it to load
+            // Load overlay image on-demand if not already present
             if (result.overlay_image) {
+                // If overlay_image exists (from single-image processing), use it
                 await displayImage(result.overlay_image);
+            } else if (result.image_path) {
+                // Load overlay from backend cache via switch_image endpoint
+                // This will return the overlay if segmentation exists
+                try {
+                    const switchResponse = await fetch('/switch_image', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ image_path: result.image_path })
+                    });
+                    const switchResult = await switchResponse.json();
+                    if (switchResult.success && switchResult.image) {
+                        await displayImage(switchResult.image);
+                    } else {
+                        console.warn('⚠️ Could not load overlay image from backend');
+                    }
+                } catch (error) {
+                    console.error('❌ Error loading overlay image:', error);
+                }
             }
             
             // Update results panel
@@ -3112,6 +3193,14 @@
             // Show download and CSV export buttons
             document.getElementById('downloadBtn').style.display = 'inline-block';
             document.getElementById('exportCsvBtn').style.display = 'inline-block';
+            
+            // Show "Export All" button and enable/disable based on number of images with results
+            const imagesWithResults = uploadedImages.filter(img => img.segmentationResults);
+            const exportAllBtn = document.getElementById('exportAllCsvBtn');
+            if (exportAllBtn) {
+                exportAllBtn.style.display = 'inline-block';
+                exportAllBtn.disabled = imagesWithResults.length < 2;
+            }
             
             // Show intensity filter panel
             const intensityPanel = document.getElementById('intensityFilterPanel');
@@ -4175,6 +4264,141 @@
             }
         }
 
+        // Export CSV for all images with segmentation results
+        async function exportAllImagesCSV() {
+            // Find all images with segmentation results
+            const imagesWithResults = uploadedImages.filter(img => img.segmentationResults);
+            
+            if (imagesWithResults.length === 0) {
+                showError('No images with segmentation results. Please run SAM segmentation first.');
+                return;
+            }
+            
+            if (imagesWithResults.length === 1) {
+                // Only one image, just use regular export
+                exportMaskCSV();
+                return;
+            }
+            
+            try {
+                // Show loading state
+                const exportBtn = document.getElementById('exportAllCsvBtn');
+                if (exportBtn) {
+                    exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting All...';
+                    exportBtn.disabled = true;
+                }
+                
+                // Check if ring width detection is enabled
+                const showDarkEdgeToggle = document.getElementById('showDarkEdgeToggle')?.checked || false;
+                const includeRingWidth = showDarkEdgeToggle;
+                const edgeWidth = includeRingWidth ? parseInt(document.getElementById('previewEdgeWidth')?.value || 3) : null;
+                const darknessThreshold = includeRingWidth ? parseInt(document.getElementById('previewDarknessThreshold')?.value || 60) : null;
+                
+                // Build request body
+                const requestBody = {
+                    include_ring_width: includeRingWidth
+                };
+                if (includeRingWidth) {
+                    requestBody.edge_width = edgeWidth;
+                    requestBody.darkness_threshold = darknessThreshold;
+                }
+                
+                let successCount = 0;
+                let errorCount = 0;
+                const currentActiveImage = uploadedImages.find(img => img.active);
+                
+                // Export CSV for each image
+                for (let i = 0; i < imagesWithResults.length; i++) {
+                    const img = imagesWithResults[i];
+                    
+                    try {
+                        updateStatus(`Exporting CSV for image ${i + 1} of ${imagesWithResults.length}: ${img.name}...`);
+                        
+                        // Switch to this image in backend
+                        const switchResponse = await fetch('/switch_image', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ image_path: img.imagePath })
+                        });
+                        
+                        const switchResult = await switchResponse.json();
+                        if (!switchResult.success) {
+                            console.error(`Failed to switch to image ${img.name}:`, switchResult.error);
+                            errorCount++;
+                            continue;
+                        }
+                        
+                        // Small delay to ensure backend is ready
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                        
+                        // Export CSV for this image
+                        const exportResponse = await fetch('/export_mask_csv', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify(requestBody)
+                        });
+                        
+                        const exportResult = await exportResponse.json();
+                        
+                        if (exportResult.success) {
+                            // Download CSV file
+                            const blob = new Blob([exportResult.data], { type: 'text/csv' });
+                            const url = window.URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.href = url;
+                            link.download = exportResult.filename;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            window.URL.revokeObjectURL(url);
+                            
+                            successCount++;
+                            
+                            // Small delay between downloads to avoid browser blocking
+                            await new Promise(resolve => setTimeout(resolve, 200));
+                        } else {
+                            console.error(`Failed to export CSV for ${img.name}:`, exportResult.error);
+                            errorCount++;
+                        }
+                    } catch (error) {
+                        console.error(`Error exporting CSV for ${img.name}:`, error);
+                        errorCount++;
+                    }
+                }
+                
+                // Switch back to originally active image
+                if (currentActiveImage) {
+                    await fetch('/switch_image', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ image_path: currentActiveImage.imagePath })
+                    });
+                }
+                
+                // Show summary
+                let successMsg = `Exported CSV for ${successCount} of ${imagesWithResults.length} image(s)`;
+                if (includeRingWidth) {
+                    successMsg += ` with ring width data`;
+                }
+                if (errorCount > 0) {
+                    successMsg += `. ${errorCount} failed`;
+                }
+                showSuccess(successMsg);
+                updateStatus('');
+                
+            } catch (error) {
+                console.error('Error exporting all CSVs:', error);
+                showError('Network error: ' + error.message);
+                updateStatus('');
+            } finally {
+                // Restore button state
+                const exportBtn = document.getElementById('exportAllCsvBtn');
+                if (exportBtn) {
+                    exportBtn.innerHTML = '<i class="fas fa-file-archive"></i> Export All CSV Data';
+                    exportBtn.disabled = false;
+                }
+            }
+        }
 
         // Intensity Filter Functions
         async function getIntensityStatistics() {

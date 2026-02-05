@@ -21,6 +21,8 @@ from datetime import datetime
 import sys
 from werkzeug.utils import secure_filename
 import tempfile
+import threading
+from uuid import uuid4
 
 # Try to import ESRGAN/super-resolution libraries
 try:
@@ -83,6 +85,9 @@ except TypeError:
     # For older Flask versions, use JSONEncoder
     app.json_encoder = NumpyJSONProvider
 app.config['MAX_CONTENT_LENGTH'] = 32 * 1024 * 1024  # 32MB max file size
+
+# Store batch job status: {job_id: {'status': 'processing'|'completed'|'error', 'progress': {...}, 'results': [...]}}
+batch_jobs = {}
 
 class SAMWebEngine:
     """Engine for handling SAM segmentation with configurable parameters"""
@@ -1592,7 +1597,6 @@ def switch_image():
         engine.load_image(image_path, restore_from_cache=True)
         # Clear dark edge cache when switching images (but keep segmentation cache)
         engine.clear_dark_edge_cache()
-        image_base64 = engine.get_image_as_base64()
         
         # Check if segmentation state was restored from cache
         has_cached_segmentation = (image_path in engine.segmentation_cache and 
@@ -1600,10 +1604,18 @@ def switch_image():
                                   engine.sam_analyzer.masks and 
                                   len(engine.sam_analyzer.masks) > 0)
         
+        # If segmentation exists, return overlay; otherwise return base image
+        if has_cached_segmentation:
+            overlay_image = engine.create_clean_filtered_overlay()
+            image_base64 = engine.get_image_as_base64(overlay_image)
+        else:
+            image_base64 = engine.get_image_as_base64()
+        
         return jsonify({
             'success': True,
             'image': image_base64,
             'image_path': image_path,
+            'has_segmentation': has_cached_segmentation,  # Flag indicating if overlay was returned
             'dimensions': {
                 'width': int(engine.current_image.shape[1]),
                 'height': int(engine.current_image.shape[0])
@@ -1754,36 +1766,28 @@ def run_sam_segmentation():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-@app.route('/run_sam_segmentation_batch', methods=['POST'])
-def run_sam_segmentation_batch():
-    """Run SAM segmentation for multiple images with the same parameters"""
+def _process_batch_segmentation(job_id, image_paths, params):
+    """Background function to process batch segmentation"""
     try:
-        data = request.get_json()
-        image_paths = data.get('image_paths', [])
-        if not image_paths:
-            return jsonify({'success': False, 'error': 'No image paths provided'})
-
-        # Same parameters as single-image endpoint
-        model_size = data.get('model_size', 'vit_b')
-        crop_layers = data.get('crop_layers', 1)
-        points_per_side = data.get('points_per_side', 32)
-        backend = data.get('backend', 'pytorch')
-        performance_mode = data.get('performance_mode', False)
-        use_gpu = data.get('use_gpu', True)
-        apply_overlap_filter = data.get('apply_overlap_filter', True)
-        overlap_threshold = data.get('overlap_threshold', 0.8)
-        overlap_remove_mode = data.get('overlap_remove_mode', 'larger')
-        apply_circularity_filter = data.get('apply_circularity_filter', False)
-        min_circularity = data.get('min_circularity', 0.0)
-        max_circularity = data.get('max_circularity', 1.0)
-        
-        # Get ring width parameters for pre-calculation
-        calculate_ring_width = data.get('calculate_ring_width', False)
-        edge_width = data.get('edge_width', 3)
-        darkness_threshold = data.get('darkness_threshold', 60)
+        # Extract parameters
+        model_size = params.get('model_size', 'vit_b')
+        crop_layers = params.get('crop_layers', 1)
+        points_per_side = params.get('points_per_side', 32)
+        backend = params.get('backend', 'pytorch')
+        performance_mode = params.get('performance_mode', False)
+        use_gpu = params.get('use_gpu', True)
+        apply_overlap_filter = params.get('apply_overlap_filter', True)
+        overlap_threshold = params.get('overlap_threshold', 0.8)
+        overlap_remove_mode = params.get('overlap_remove_mode', 'larger')
+        apply_circularity_filter = params.get('apply_circularity_filter', False)
+        min_circularity = params.get('min_circularity', 0.0)
+        max_circularity = params.get('max_circularity', 1.0)
+        calculate_ring_width = params.get('calculate_ring_width', False)
+        edge_width = params.get('edge_width', 3)
+        darkness_threshold = params.get('darkness_threshold', 60)
 
         results = []
-
+        
         # Configure SAM once
         engine.configure_sam_parameters(
             model_size=model_size,
@@ -1794,7 +1798,14 @@ def run_sam_segmentation_batch():
             use_gpu=use_gpu
         )
 
-        for path in image_paths:
+        for idx, path in enumerate(image_paths):
+            # Update progress
+            batch_jobs[job_id]['progress'] = {
+                'current': idx + 1,
+                'total': len(image_paths),
+                'current_image': os.path.basename(path)
+            }
+            
             if not os.path.exists(path):
                 results.append({
                     'image_path': path,
@@ -1845,9 +1856,6 @@ def run_sam_segmentation_batch():
                     ['intensity_filtered', 'overlap_filtered', 'circularity_filtered']
                 ]
 
-                # Get overlay image and mask data for this image
-                overlay_base64 = engine.get_image_as_base64()
-                
                 # Get all mask statistics with states for visible masks
                 visible_masks_data = []
                 if engine.sam_analyzer and engine.sam_analyzer.mask_statistics:
@@ -1861,6 +1869,7 @@ def run_sam_segmentation_batch():
                             mask_info['mask_id'] = i
                             visible_masks_data.append(mask_info)
 
+                # Don't include overlay_image in batch response - load on-demand via /switch_image
                 results.append({
                     'image_path': path,
                     'success': True,
@@ -1868,7 +1877,6 @@ def run_sam_segmentation_batch():
                     'visible_masks': len(filtered_mask_stats),
                     'total_masks': len(mask_stats),
                     'summary': summary,
-                    'overlay_image': overlay_base64,  # Add overlay image
                     'masks': visible_masks_data,  # Add mask data
                     'mask_stats': filtered_mask_stats  # Add mask stats for compatibility
                 })
@@ -1878,22 +1886,93 @@ def run_sam_segmentation_batch():
                     'success': False,
                     'error': str(e)
                 })
+        
+        # Mark as completed
+        batch_jobs[job_id]['status'] = 'completed'
+        batch_jobs[job_id]['results'] = results
+        batch_jobs[job_id]['parameters'] = {
+            'model_size': model_size,
+            'crop_layers': crop_layers,
+            'points_per_side': points_per_side,
+            'backend': backend,
+            'performance_mode': performance_mode,
+            'use_gpu': use_gpu
+        }
+        
+    except Exception as e:
+        batch_jobs[job_id]['status'] = 'error'
+        batch_jobs[job_id]['error'] = str(e)
 
+@app.route('/run_sam_segmentation_batch', methods=['POST'])
+def run_sam_segmentation_batch():
+    """Start batch SAM segmentation asynchronously"""
+    try:
+        data = request.get_json()
+        image_paths = data.get('image_paths', [])
+        if not image_paths:
+            return jsonify({'success': False, 'error': 'No image paths provided'})
+
+        # Generate unique job ID
+        job_id = str(uuid4())
+        
+        # Initialize job status
+        batch_jobs[job_id] = {
+            'status': 'processing',
+            'progress': {
+                'current': 0,
+                'total': len(image_paths),
+                'current_image': None
+            },
+            'results': []
+        }
+        
+        # Start background thread
+        thread = threading.Thread(
+            target=_process_batch_segmentation,
+            args=(job_id, image_paths, data),
+            daemon=True
+        )
+        thread.start()
+        
         return jsonify({
             'success': True,
-            'results': results,
-            'parameters': {
-                'model_size': model_size,
-                'crop_layers': crop_layers,
-                'points_per_side': points_per_side,
-                'backend': backend,
-                'performance_mode': performance_mode,
-                'use_gpu': use_gpu
-            }
+            'job_id': job_id,
+            'message': f'Batch processing started for {len(image_paths)} images'
         })
-
+        
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/get_batch_status/<job_id>', methods=['GET'])
+def get_batch_status(job_id):
+    """Get status of batch processing job"""
+    if job_id not in batch_jobs:
+        return jsonify({'success': False, 'error': 'Job not found'})
+    
+    job = batch_jobs[job_id]
+    return jsonify({
+        'success': True,
+        'status': job['status'],
+        'progress': job['progress'],
+        'completed': job['status'] == 'completed',
+        'error': job.get('error')
+    })
+
+@app.route('/get_batch_results/<job_id>', methods=['GET'])
+def get_batch_results(job_id):
+    """Get results of completed batch processing job"""
+    if job_id not in batch_jobs:
+        return jsonify({'success': False, 'error': 'Job not found'})
+    
+    job = batch_jobs[job_id]
+    if job['status'] != 'completed':
+        return jsonify({'success': False, 'error': 'Job not completed yet'})
+    
+    return jsonify({
+        'success': True,
+        'results': job['results'],
+        'parameters': job.get('parameters', {})
+    })
 
 @app.route('/get_mask_info', methods=['POST'])
 def get_mask_info():
