@@ -3258,19 +3258,18 @@ def export_mask_csv():
         # Determine if we should use units
         use_units = engine.sam_analyzer.conversion_enabled
         unit_name = engine.sam_analyzer.unit_name if use_units else "pixels"
-        area_unit = f"{unit_name}²" if use_units else "pixels²"
         
         # Create header with appropriate units
         if use_units:
             if include_ring_width:
-                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity,Ring_Width_{unit_name},Dark_Edge_Diameter_{unit_name},Dark_Ratio,Prediction_Diameter_{unit_name}")
+                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Circularity,Ring_Width_{unit_name},Dark_Edge_Diameter_{unit_name},Prediction_Diameter_{unit_name}")
             else:
-                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Area_{area_unit},Circularity")
+                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Circularity")
         else:
             if include_ring_width:
-                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity,Ring_Width,Dark_Edge_Diameter,Dark_Ratio,Prediction_Diameter")
+                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Circularity,Ring_Width,Dark_Edge_Diameter,Prediction_Diameter")
             else:
-                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Area,Circularity")
+                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Circularity")
         
         active_mask_count = 0
         for i, stats in enumerate(engine.sam_analyzer.mask_statistics):
@@ -3285,19 +3284,16 @@ def export_mask_csv():
                 center_y = stats.get('center_y', 0)
                 diameter = stats.get('diameter', 0)
                 mean_intensity = stats.get('mean_intensity', 0)
-                area = stats.get('area', 0)
                 circularity = stats.get('circularity', 0)
                 
                 # Calculate ring width if requested (uses cache and applies unit conversion)
                 ring_width = 0
                 dark_edge_diameter = 0
-                dark_ratio = 0
                 if include_ring_width:
                     dark_edge_data = engine.get_dark_edge_data_with_units(i, edge_width, darkness_threshold)
                     if dark_edge_data:
                         ring_width = dark_edge_data.get('ring_width', 0)
                         dark_edge_diameter = dark_edge_data.get('dark_edge_diameter', 0)
-                        dark_ratio = dark_edge_data.get('dark_ratio', 0)
                         
                         # Ensure ring width is not negative (set to 0 if < 0)
                         if ring_width < 0:
@@ -3306,7 +3302,6 @@ def export_mask_csv():
                 # Convert to units if conversion is enabled (dark edge data already converted if include_ring_width)
                 if use_units:
                     diameter = engine.sam_analyzer.convert_pixels_to_units(diameter)
-                    area = engine.sam_analyzer.convert_area_to_units(area)
                     # Note: ring_width and dark_edge_diameter are already converted if include_ring_width is True
                 
                 # Calculate prediction diameter if ring width is included
@@ -3317,9 +3312,9 @@ def export_mask_csv():
                 
                 # Add row to CSV
                 if include_ring_width:
-                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f},{ring_width:.2f},{dark_edge_diameter:.2f},{dark_ratio:.3f},{prediction_diameter:.2f}")
+                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{circularity:.3f},{ring_width:.2f},{dark_edge_diameter:.2f},{prediction_diameter:.2f}")
                 else:
-                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{area:.2f},{circularity:.3f}")
+                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{circularity:.3f}")
                 active_mask_count += 1
         
         # Check if there are any active masks to export
