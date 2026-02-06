@@ -738,6 +738,24 @@ class SAMWebEngine:
         """
         self.image_path = image_path
         
+        # Preserve unit conversion settings from current analyzer (if any),
+        # so we can re-apply them after restoring from cache. This ensures
+        # that CSV export and mask statistics continue to use the same units
+        # even when switching images that were segmented earlier.
+        preserved_conversion = None
+        if self.sam_analyzer is not None and getattr(self.sam_analyzer, "conversion_enabled", False):
+            try:
+                conversion_info = self.sam_analyzer.get_conversion_info()
+                preserved_conversion = {
+                    "pixel_distance": conversion_info.get("pixel_distance"),
+                    "unit_distance": conversion_info.get("unit_distance"),
+                    "unit_name": conversion_info.get("unit_name"),
+                }
+                print(f"🔒 Preserving unit conversion before loading image: {preserved_conversion}")
+            except Exception as e:
+                print(f"⚠️ Failed to preserve unit conversion info: {e}")
+                preserved_conversion = None
+        
         # Check cache first if restore_from_cache is True
         if restore_from_cache and image_path in self.segmentation_cache:
             cache_entry = self.segmentation_cache[image_path]
@@ -749,6 +767,22 @@ class SAMWebEngine:
             
             # Restore SAM analyzer (this contains all masks and segmentation state)
             self.sam_analyzer = cache_entry['sam_analyzer']
+
+            # Re-apply preserved unit conversion settings (if any)
+            if preserved_conversion:
+                try:
+                    pd = preserved_conversion.get("pixel_distance")
+                    ud = preserved_conversion.get("unit_distance")
+                    un = preserved_conversion.get("unit_name") or "μm"
+                    if pd and ud:
+                        self.sam_analyzer.set_pixel_to_unit_conversion(
+                            pixel_distance=float(pd),
+                            unit_distance=float(ud),
+                            unit_name=str(un)
+                        )
+                        print(f"🔄 Re-applied unit conversion after cache restore: {pd} px = {ud} {un}")
+                except Exception as e:
+                    print(f"⚠️ Failed to re-apply unit conversion after cache restore: {e}")
             
             # Restore parameters
             params = cache_entry.get('parameters', {})

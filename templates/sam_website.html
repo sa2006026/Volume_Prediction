@@ -2122,9 +2122,9 @@
                 const files = Array.from(e.dataTransfer.files);
                 
                 if (files.length > 0) {
-                    // Validate max 6 files
-                    if (files.length > 6) {
-                        showError('Maximum 6 images allowed');
+                    // Validate max 10 files
+                    if (files.length > 10) {
+                        showError('Maximum 10 images allowed');
                         return;
                     }
                     
@@ -2144,9 +2144,9 @@
                 if (e.target.files.length > 0) {
                     const files = Array.from(e.target.files);
                     
-                    // Validate max 6 files
-                    if (files.length > 6) {
-                        showError('Maximum 6 images allowed. Please select 6 or fewer images.');
+                    // Validate max 10 files
+                    if (files.length > 10) {
+                        showError('Maximum 10 images allowed. Please select 10 or fewer images.');
                         // Reset file input
                         e.target.value = '';
                         return;
@@ -2297,8 +2297,8 @@
                     // Add new image to list
                     uploadedImages.push(imageInfo);
                     
-                    // Limit to 6 images (remove oldest if exceeded)
-                    if (uploadedImages.length > 6) {
+                    // Limit to 10 images (remove oldest if exceeded)
+                    if (uploadedImages.length > 10) {
                         const removed = uploadedImages.shift();
                         console.log(`📤 Removed oldest image: ${removed.name}`);
                     }
