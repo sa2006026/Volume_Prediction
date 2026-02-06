@@ -3783,14 +3783,15 @@
         function drawMask(mask, isHovered = false, isSelected = false) {
             if (!ctx) return;
             
+            // Skip drawing if mask is removed - state is updated but we don't draw it
+            if (mask.state === 'removed') {
+                return;  // Exit early - don't draw anything
+            }
+            
             const [x, y, w, h] = mask.getScaledBoundingBox();
             
-            // Set line style - make transparent if mask is removed
-            if (mask.state === 'removed') {
-                ctx.strokeStyle = 'transparent';
-            } else {
-                ctx.strokeStyle = mask.color;
-            }
+            // Set line style (only for active masks)
+            ctx.strokeStyle = mask.color;
             ctx.lineWidth = mask.lineWidth;
             
             if (mask.lineStyle === 'dashed') {
@@ -3802,8 +3803,8 @@
             // Draw bounding box
             ctx.strokeRect(x, y, w, h);
             
-            // Highlight hovered or selected mask (only if not removed)
-            if ((isHovered || isSelected) && mask.state !== 'removed') {
+            // Highlight hovered or selected mask
+            if (isHovered || isSelected) {
                 ctx.strokeStyle = '#00ff00';
                 ctx.lineWidth = 3;
                 ctx.setLineDash([]);
