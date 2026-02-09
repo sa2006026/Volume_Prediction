@@ -3285,6 +3285,7 @@ def export_mask_csv():
         include_ring_width = data.get('include_ring_width', False)
         edge_width = int(data.get('edge_width', 3))
         darkness_threshold = int(data.get('darkness_threshold', 60))
+        reference_dye = data.get('reference_dye', False)  # New parameter
         
         # Create CSV content - only export active masks (not filtered out)
         csv_lines = []
@@ -3293,17 +3294,20 @@ def export_mask_csv():
         use_units = engine.sam_analyzer.conversion_enabled
         unit_name = engine.sam_analyzer.unit_name if use_units else "pixels"
         
-        # Create header with appropriate units
+        # Prefix for column names if reference_dye is enabled
+        col_prefix = "reference_" if reference_dye else ""
+        
+        # Create header with appropriate units and prefix
         if use_units:
             if include_ring_width:
-                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Circularity,Ring_Width_{unit_name},Dark_Edge_Diameter_{unit_name},Prediction_Diameter_{unit_name}")
+                csv_lines.append(f"Mask_ID,{col_prefix}Center_X_px,{col_prefix}Center_Y_px,{col_prefix}Diameter_{unit_name},{col_prefix}Mean_Intensity,{col_prefix}Circularity,{col_prefix}Ring_Width_{unit_name},{col_prefix}Dark_Edge_Diameter_{unit_name},{col_prefix}Prediction_Diameter_{unit_name}")
             else:
-                csv_lines.append(f"Mask_ID,Center_X_px,Center_Y_px,Diameter_{unit_name},Mean_Intensity,Circularity")
+                csv_lines.append(f"Mask_ID,{col_prefix}Center_X_px,{col_prefix}Center_Y_px,{col_prefix}Diameter_{unit_name},{col_prefix}Mean_Intensity,{col_prefix}Circularity")
         else:
             if include_ring_width:
-                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Circularity,Ring_Width,Dark_Edge_Diameter,Prediction_Diameter")
+                csv_lines.append(f"Mask_ID,{col_prefix}Center_X,{col_prefix}Center_Y,{col_prefix}Diameter,{col_prefix}Mean_Intensity,{col_prefix}Circularity,{col_prefix}Ring_Width,{col_prefix}Dark_Edge_Diameter,{col_prefix}Prediction_Diameter")
             else:
-                csv_lines.append("Mask_ID,Center_X,Center_Y,Diameter,Mean_Intensity,Circularity")
+                csv_lines.append(f"Mask_ID,{col_prefix}Center_X,{col_prefix}Center_Y,{col_prefix}Diameter,{col_prefix}Mean_Intensity,{col_prefix}Circularity")
         
         active_mask_count = 0
         for i, stats in enumerate(engine.sam_analyzer.mask_statistics):
@@ -3361,7 +3365,10 @@ def export_mask_csv():
         # Generate filename based on image name and export type
         if engine.image_filename:
             # Use image filename + export type
-            if include_ring_width:
+            if reference_dye:
+                # Format: filename_reference dye.csv
+                filename = f'{engine.image_filename}_reference dye.csv'
+            elif include_ring_width:
                 filename = f'{engine.image_filename}_diameter_prediction.csv'
             else:
                 filename = f'{engine.image_filename}_csv_data.csv'
@@ -3369,7 +3376,9 @@ def export_mask_csv():
             # Fallback to timestamp-based filename if no image name available
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unit_suffix = f"_{unit_name}" if use_units else "_pixels"
-            if include_ring_width:
+            if reference_dye:
+                filename = f'reference_dye{unit_suffix}_{timestamp}.csv'
+            elif include_ring_width:
                 filename = f'diameter_prediction{unit_suffix}_{timestamp}.csv'
             else:
                 filename = f'mask_data_filtered{unit_suffix}_{timestamp}.csv'

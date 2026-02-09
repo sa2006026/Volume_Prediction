@@ -1299,6 +1299,10 @@
                         <button class="btn" id="exportAllCsvBtn" onclick="exportAllImagesCSV()" style="display: none; font-size: 0.8em; padding: 8px 16px; background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%); color: white; margin-top: 5px;">
                             <i class="fas fa-file-archive"></i> Export All CSV Data
                         </button>
+                        <label style="display: none; margin-top: 8px; font-size: 0.85em; color: #333; cursor: pointer;" id="referenceDyeLabel">
+                            <input type="checkbox" id="referenceDyeCheckbox" style="margin-right: 5px;">
+                            Reference Dye
+                        </label>
                     </div>
                     
                     <!-- Overlap Filter Panel -->
@@ -3202,6 +3206,12 @@
                 exportAllBtn.disabled = imagesWithResults.length < 2;
             }
             
+            // Show reference dye checkbox when export buttons are visible
+            const referenceDyeLabel = document.getElementById('referenceDyeLabel');
+            if (referenceDyeLabel) {
+                referenceDyeLabel.style.display = 'block';
+            }
+            
             // Show intensity filter panel
             const intensityPanel = document.getElementById('intensityFilterPanel');
             if (intensityPanel) {
@@ -4164,9 +4174,13 @@
                 const edgeWidth = includeRingWidth ? parseInt(document.getElementById('previewEdgeWidth')?.value || 3) : null;
                 const darknessThreshold = includeRingWidth ? parseInt(document.getElementById('previewDarknessThreshold')?.value || 60) : null;
 
+                // Check if reference dye checkbox is enabled
+                const referenceDye = document.getElementById('referenceDyeCheckbox')?.checked || false;
+
                 // Build request body
                 const requestBody = {
-                    include_ring_width: includeRingWidth
+                    include_ring_width: includeRingWidth,
+                    reference_dye: referenceDye
                 };
                 
                 // Add ring width parameters if enabled
@@ -4178,7 +4192,8 @@
                 console.log('📤 CSV Export Options:', {
                     includeRingWidth: includeRingWidth,
                     edgeWidth: edgeWidth,
-                    darknessThreshold: darknessThreshold
+                    darknessThreshold: darknessThreshold,
+                    referenceDye: referenceDye
                 });
 
                 // Make API request to CSV export endpoint
@@ -4263,9 +4278,13 @@
                 const edgeWidth = includeRingWidth ? parseInt(document.getElementById('previewEdgeWidth')?.value || 3) : null;
                 const darknessThreshold = includeRingWidth ? parseInt(document.getElementById('previewDarknessThreshold')?.value || 60) : null;
                 
+                // Check if reference dye checkbox is enabled
+                const referenceDye = document.getElementById('referenceDyeCheckbox')?.checked || false;
+                
                 // Build request body
                 const requestBody = {
-                    include_ring_width: includeRingWidth
+                    include_ring_width: includeRingWidth,
+                    reference_dye: referenceDye
                 };
                 if (includeRingWidth) {
                     requestBody.edge_width = edgeWidth;
@@ -4348,6 +4367,9 @@
                 let successMsg = `Exported CSV for ${successCount} of ${imagesWithResults.length} image(s)`;
                 if (includeRingWidth) {
                     successMsg += ` with ring width data`;
+                }
+                if (referenceDye) {
+                    successMsg += ` (reference dye format)`;
                 }
                 if (errorCount > 0) {
                     successMsg += `. ${errorCount} failed`;
