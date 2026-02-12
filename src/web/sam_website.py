@@ -3286,6 +3286,7 @@ def export_mask_csv():
         edge_width = int(data.get('edge_width', 3))
         darkness_threshold = int(data.get('darkness_threshold', 60))
         reference_dye = data.get('reference_dye', False)  # New parameter
+        fluorescent_near_ref_dye = data.get('fluorescent_near_ref_dye', False)  # New parameter
         
         # Create CSV content - only export active masks (not filtered out)
         csv_lines = []
@@ -3294,8 +3295,13 @@ def export_mask_csv():
         use_units = engine.sam_analyzer.conversion_enabled
         unit_name = engine.sam_analyzer.unit_name if use_units else "pixels"
         
-        # Prefix for column names if reference_dye is enabled
-        col_prefix = "reference_" if reference_dye else ""
+        # Prefix for column names - fluorescent_near_ref_dye takes priority over reference_dye
+        if fluorescent_near_ref_dye:
+            col_prefix = "fluorescent_"
+        elif reference_dye:
+            col_prefix = "reference_"
+        else:
+            col_prefix = ""
         
         # Create header with appropriate units and prefix
         if use_units:
@@ -3365,7 +3371,10 @@ def export_mask_csv():
         # Generate filename based on image name and export type
         if engine.image_filename:
             # Use image filename + export type
-            if reference_dye:
+            if fluorescent_near_ref_dye:
+                # Format: filename_fluorescent.csv
+                filename = f'{engine.image_filename}_fluorescent.csv'
+            elif reference_dye:
                 # Format: filename_reference dye.csv
                 filename = f'{engine.image_filename}_reference dye.csv'
             elif include_ring_width:
@@ -3376,7 +3385,9 @@ def export_mask_csv():
             # Fallback to timestamp-based filename if no image name available
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unit_suffix = f"_{unit_name}" if use_units else "_pixels"
-            if reference_dye:
+            if fluorescent_near_ref_dye:
+                filename = f'fluorescent{unit_suffix}_{timestamp}.csv'
+            elif reference_dye:
                 filename = f'reference_dye{unit_suffix}_{timestamp}.csv'
             elif include_ring_width:
                 filename = f'diameter_prediction{unit_suffix}_{timestamp}.csv'
@@ -3403,12 +3414,13 @@ def export_mask_csv():
 def match_csv_files():
     """Match rows from two CSV files based on x,y coordinates (within ±5 pixels)"""
     try:
-        # Check if files were uploaded
+        # Check if required files were uploaded
         if 'diameter_file' not in request.files or 'fluorescent_file' not in request.files:
             return jsonify({'success': False, 'error': 'Both diameter and fluorescent files are required'})
         
         diameter_file = request.files['diameter_file']
         fluorescent_file = request.files['fluorescent_file']
+        reference_dye_file = request.files.get('reference_dye_file')  # Optional
         
         if diameter_file.filename == '' or fluorescent_file.filename == '':
             return jsonify({'success': False, 'error': 'Please select both CSV files'})
@@ -3460,6 +3472,29 @@ def match_csv_files():
                         break
             return x_col, y_col
         
+        # Parse reference dye file if provided
+        reference_dye_rows = []
+        reference_dye_x_col = None
+        reference_dye_y_col = None
+        reference_dye_mean_intensity_col = None
+        
+        if reference_dye_file and reference_dye_file.filename != '':
+            reference_dye_content = reference_dye_file.read().decode('utf-8')
+            reference_dye_reader = csv.DictReader(io.StringIO(reference_dye_content))
+            reference_dye_rows = list(reference_dye_reader)
+            
+            if reference_dye_rows:
+                reference_dye_x_col, reference_dye_y_col = find_xy_columns(reference_dye_rows[0])
+                # Find mean intensity column in reference dye file
+                for col in reference_dye_rows[0].keys():
+                    col_lower = col.lower()
+                    if 'mean_intensity' in col_lower or ('intensity' in col_lower and 'mean' in col_lower):
+                        reference_dye_mean_intensity_col = col
+                        break
+                    # Fallback: if no "mean_intensity" found, look for any intensity column
+                    if not reference_dye_mean_intensity_col and 'intensity' in col_lower:
+                        reference_dye_mean_intensity_col = col
+        
         # Get column names for both files
         if not diameter_rows or not fluorescent_rows:
             return jsonify({'success': False, 'error': 'One or both CSV files are empty'})
@@ -3472,6 +3507,11 @@ def match_csv_files():
         
         if not fluorescent_x_col or not fluorescent_y_col:
             return jsonify({'success': False, 'error': 'Could not find x,y coordinates in fluorescent file. Expected columns like Center_X, Center_Y, or X, Y'})
+        
+        # Validate reference dye file if provided
+        if reference_dye_rows:
+            if not reference_dye_x_col or not reference_dye_y_col:
+                return jsonify({'success': False, 'error': 'Could not find x,y coordinates in reference dye file. Expected columns like Center_X, Center_Y, or X, Y'})
         
         # Tolerance for matching (±5 pixels)
         tolerance = 5.0
@@ -3497,6 +3537,21 @@ def match_csv_files():
                 if key not in fluorescent_lookup:
                     fluorescent_lookup[key] = []
                 fluorescent_lookup[key].append((x, y, row))
+        
+        # Create lookup for reference dye file: (x, y) -> row
+        reference_dye_lookup = {}
+        if reference_dye_rows and reference_dye_x_col and reference_dye_y_col:
+            for row in reference_dye_rows:
+                x = parse_coord(row.get(reference_dye_x_col))
+                y = parse_coord(row.get(reference_dye_y_col))
+                if x is not None and y is not None:
+                    # Round to tolerance grid for faster lookup
+                    x_key = round(x / tolerance) * tolerance
+                    y_key = round(y / tolerance) * tolerance
+                    key = (x_key, y_key)
+                    if key not in reference_dye_lookup:
+                        reference_dye_lookup[key] = []
+                    reference_dye_lookup[key].append((x, y, row))
         
         # Match rows
         matched_rows = []
@@ -3528,40 +3583,126 @@ def match_csv_files():
                             if distance <= tolerance:
                                 # Match found!
                                 matched = True
-                                # Combine rows - prioritize key columns
+                                # Combine rows - prioritize key columns in specific order
                                 combined_row = {}
                                 
-                                # Add key identifying columns first
+                                # Step 1: Add coordinate columns first
                                 combined_row['Center_X_px'] = f"{x:.2f}"
                                 combined_row['Center_Y_px'] = f"{y:.2f}"
-                                combined_row['Distance_px'] = f"{distance:.2f}"
+                                # Distance_px removed - not needed
                                 
-                                # Add diameter file columns - keep important ones with original names
+                                # Step 2: Extract diameter of brightfield (from diameter file)
+                                brightfield_diameter = None
+                                brightfield_diameter_col = None
                                 for col, val in diameter_row.items():
                                     col_lower = col.lower()
-                                    # Skip coordinate columns (already added)
-                                    if col == diameter_x_col or col == diameter_y_col:
-                                        continue
-                                    # Keep key columns with original names
-                                    if any(keyword in col_lower for keyword in ['diameter', 'ring_width', 'prediction', 'dark_edge', 'dark_ratio', 'mean_intensity', 'area', 'circularity', 'mask_id']):
-                                        combined_row[col] = val
-                                    else:
-                                        combined_row[f'Diameter_{col}'] = val
+                                    # Look for diameter column (but not prediction or dark_edge)
+                                    if 'diameter' in col_lower and 'prediction' not in col_lower and 'dark_edge' not in col_lower:
+                                        brightfield_diameter = val
+                                        brightfield_diameter_col = col
+                                        combined_row['Brightfield_Diameter'] = val
+                                        break
                                 
-                                # Add fluorescent file columns (with prefix to avoid conflicts)
-                                for col, val in fluorescent_row.items():
-                                    # Skip coordinate columns (already added)
-                                    if col == fluorescent_x_col or col == fluorescent_y_col:
-                                        continue
+                                # Step 3: Extract intensity of brightfield (from diameter file)
+                                brightfield_intensity = None
+                                brightfield_intensity_col = None
+                                for col, val in diameter_row.items():
                                     col_lower = col.lower()
-                                    # Check if column name already exists (e.g., both have Diameter_μm)
-                                    if col in combined_row:
-                                        # Add with fluorescent prefix
-                                        combined_row[f'Fluorescent_{col}'] = val
-                                    else:
-                                        # Use original name if it doesn't conflict
-                                        combined_row[col] = val
+                                    if 'mean_intensity' in col_lower or ('intensity' in col_lower and 'mean' in col_lower):
+                                        brightfield_intensity = parse_coord(val)
+                                        brightfield_intensity_col = col
+                                        combined_row['Brightfield_Mean_Intensity'] = val
+                                        break
+                                    # Fallback: look for any intensity column
+                                    if brightfield_intensity is None and 'intensity' in col_lower:
+                                        brightfield_intensity = parse_coord(val)
+                                        brightfield_intensity_col = col
+                                        combined_row['Brightfield_Mean_Intensity'] = val
                                 
+                                # Step 4: Extract fluorescent intensity
+                                fluorescent_mean_intensity = None
+                                fluorescent_intensity_col = None
+                                for col, val in fluorescent_row.items():
+                                    col_lower = col.lower()
+                                    if 'mean_intensity' in col_lower or ('intensity' in col_lower and 'mean' in col_lower):
+                                        fluorescent_mean_intensity = parse_coord(val)
+                                        fluorescent_intensity_col = col
+                                        combined_row['Fluorescent_Mean_Intensity'] = val
+                                        break
+                                    # Fallback: look for any intensity column
+                                    if fluorescent_mean_intensity is None and 'intensity' in col_lower:
+                                        fluorescent_mean_intensity = parse_coord(val)
+                                        fluorescent_intensity_col = col
+                                        combined_row['Fluorescent_Mean_Intensity'] = val
+                                
+                                # Step 5: Extract predicted diameter (if available from diameter file)
+                                predicted_diameter = None
+                                predicted_diameter_col = None
+                                for col, val in diameter_row.items():
+                                    col_lower = col.lower()
+                                    if 'prediction' in col_lower and 'diameter' in col_lower:
+                                        predicted_diameter = val
+                                        predicted_diameter_col = col
+                                        combined_row['Predicted_Diameter'] = val
+                                        break
+                                    # Also check for dark_edge_diameter as fallback
+                                    if predicted_diameter is None and 'dark_edge' in col_lower and 'diameter' in col_lower:
+                                        predicted_diameter = val
+                                        predicted_diameter_col = col
+                                        combined_row['Predicted_Diameter'] = val
+                                
+                                # Step 5b: Extract ring width (if available from diameter file)
+                                ring_width = None
+                                ring_width_col = None
+                                for col, val in diameter_row.items():
+                                    col_lower = col.lower()
+                                    if 'ring_width' in col_lower or 'ringwidth' in col_lower:
+                                        ring_width = val
+                                        ring_width_col = col
+                                        combined_row['Ring_Width'] = val
+                                        break
+                                
+                                # Step 6: Match with reference dye if provided
+                                ref_mean_intensity = None
+                                if reference_dye_lookup:
+                                    ref_matched = False
+                                    # Search for reference dye match within tolerance
+                                    for dx in [-tolerance, 0, tolerance]:
+                                        for dy in [-tolerance, 0, tolerance]:
+                                            ref_search_key = (x_key + dx, y_key + dy)
+                                            if ref_search_key in reference_dye_lookup:
+                                                for ref_x, ref_y, ref_row in reference_dye_lookup[ref_search_key]:
+                                                    # Check actual distance
+                                                    ref_distance = ((x - ref_x) ** 2 + (y - ref_y) ** 2) ** 0.5
+                                                    if ref_distance <= tolerance:
+                                                        ref_matched = True
+                                                        
+                                                        # Get reference dye mean intensity
+                                                        if reference_dye_mean_intensity_col:
+                                                            ref_mean_intensity = parse_coord(ref_row.get(reference_dye_mean_intensity_col))
+                                                            combined_row['Reference_Mean_Intensity'] = ref_row.get(reference_dye_mean_intensity_col)
+                                                        
+                                                        # Calculate ratio if both intensities are available
+                                                        if fluorescent_mean_intensity is not None and ref_mean_intensity is not None and ref_mean_intensity != 0:
+                                                            ratio = fluorescent_mean_intensity / ref_mean_intensity
+                                                            combined_row['Ratio_of_Fluorescent_and_Ref_Dye'] = f"{ratio:.6f}"
+                                                        else:
+                                                            combined_row['Ratio_of_Fluorescent_and_Ref_Dye'] = ''
+                                                        
+                                                        break
+                                                if ref_matched:
+                                                    break
+                                            if ref_matched:
+                                                break
+                                        if ref_matched:
+                                            break
+                                    
+                                    if not ref_matched:
+                                        combined_row['Reference_Mean_Intensity'] = ''
+                                        combined_row['Ratio_of_Fluorescent_and_Ref_Dye'] = ''
+                                # Don't add ratio or reference columns if reference dye is not provided
+                                
+                                # Only keep essential columns - don't add any other columns
                                 matched_rows.append(combined_row)
                                 
                                 # Mark this fluorescent row as matched
@@ -3586,6 +3727,95 @@ def match_csv_files():
         # Get only fluorescent rows
         only_fluorescent_rows = [fluorescent_rows[i] for i in only_fluorescent_indices]
         
+        # Process only_diameter_rows to extract essential columns
+        processed_only_diameter_rows = []
+        if only_diameter_rows:
+            for diameter_row in only_diameter_rows:
+                processed_row = {}
+                
+                # Extract coordinates
+                x = parse_coord(diameter_row.get(diameter_x_col))
+                y = parse_coord(diameter_row.get(diameter_y_col))
+                if x is not None and y is not None:
+                    processed_row['Center_X_px'] = f"{x:.2f}"
+                    processed_row['Center_Y_px'] = f"{y:.2f}"
+                
+                # Extract brightfield diameter
+                brightfield_diameter_val = None
+                for col, val in diameter_row.items():
+                    col_lower = col.lower()
+                    if 'diameter' in col_lower and 'prediction' not in col_lower and 'dark_edge' not in col_lower:
+                        processed_row['Brightfield_Diameter'] = val
+                        try:
+                            brightfield_diameter_val = float(val)
+                        except (ValueError, TypeError):
+                            pass
+                        break
+                
+                # Extract brightfield intensity
+                for col, val in diameter_row.items():
+                    col_lower = col.lower()
+                    if 'mean_intensity' in col_lower or ('intensity' in col_lower and 'mean' in col_lower):
+                        processed_row['Brightfield_Mean_Intensity'] = val
+                        break
+                    # Fallback: look for any intensity column
+                    if 'Brightfield_Mean_Intensity' not in processed_row and 'intensity' in col_lower:
+                        processed_row['Brightfield_Mean_Intensity'] = val
+                
+                # Extract ring width
+                ring_width_val = None
+                for col, val in diameter_row.items():
+                    col_lower = col.lower()
+                    if 'ring_width' in col_lower or 'ringwidth' in col_lower:
+                        processed_row['Ring_Width'] = val
+                        try:
+                            ring_width_val = float(val) if val else 0.0
+                        except (ValueError, TypeError):
+                            ring_width_val = 0.0
+                        break
+                
+                # Calculate predicted diameter: 1.05 * Brightfield_Diameter + 0.41 * Ring_Width
+                if brightfield_diameter_val is not None:
+                    if ring_width_val is None:
+                        ring_width_val = 0.0
+                    predicted_diameter_calculated = 1.05 * brightfield_diameter_val + 0.41 * ring_width_val
+                    processed_row['Predicted_Diameter'] = f"{predicted_diameter_calculated:.2f}"
+                else:
+                    # Fallback: try to extract from CSV if calculation not possible
+                    for col, val in diameter_row.items():
+                        col_lower = col.lower()
+                        if ('prediction' in col_lower and 'diameter' in col_lower) or \
+                           ('dark_edge' in col_lower and 'diameter' in col_lower):
+                            processed_row['Predicted_Diameter'] = val
+                            break
+                
+                processed_only_diameter_rows.append(processed_row)
+        
+        # Process only_fluorescent_rows to extract essential columns
+        processed_only_fluorescent_rows = []
+        if only_fluorescent_rows:
+            for fluorescent_row in only_fluorescent_rows:
+                processed_row = {}
+                
+                # Extract coordinates
+                x = parse_coord(fluorescent_row.get(fluorescent_x_col))
+                y = parse_coord(fluorescent_row.get(fluorescent_y_col))
+                if x is not None and y is not None:
+                    processed_row['Center_X_px'] = f"{x:.2f}"
+                    processed_row['Center_Y_px'] = f"{y:.2f}"
+                
+                # Extract fluorescent intensity
+                for col, val in fluorescent_row.items():
+                    col_lower = col.lower()
+                    if 'mean_intensity' in col_lower or ('intensity' in col_lower and 'mean' in col_lower):
+                        processed_row['Fluorescent_Mean_Intensity'] = val
+                        break
+                    # Fallback: look for any intensity column
+                    if 'Fluorescent_Mean_Intensity' not in processed_row and 'intensity' in col_lower:
+                        processed_row['Fluorescent_Mean_Intensity'] = val
+                
+                processed_only_fluorescent_rows.append(processed_row)
+        
         # Generate CSV content
         def escape_csv_value(value):
             """Escape CSV value if it contains comma, quote, or newline"""
@@ -3602,80 +3832,120 @@ def match_csv_files():
         all_columns = set()
         if matched_rows:
             all_columns.update(matched_rows[0].keys())
-        if only_diameter_rows:
-            all_columns.update(only_diameter_rows[0].keys())
-        if only_fluorescent_rows:
-            all_columns.update(only_fluorescent_rows[0].keys())
+        if processed_only_diameter_rows:
+            all_columns.update(processed_only_diameter_rows[0].keys())
+        if processed_only_fluorescent_rows:
+            all_columns.update(processed_only_fluorescent_rows[0].keys())
         
-        # Sort columns: coordinates first, then group by source (Diameter/Fluorescent)
+        # Sort columns: specific order requested by user
         sorted_columns = []
         
         # Step 1: Add coordinate columns first
-        coord_cols = ['Center_X_px', 'Center_Y_px', 'X', 'Y', 'Distance_px']
+        coord_cols = ['Center_X_px', 'Center_Y_px']
         for col in coord_cols:
             if col in all_columns:
                 sorted_columns.append(col)
                 all_columns.discard(col)
         
-        # Step 2: Categorize remaining columns by source
-        diameter_columns = []
-        fluorescent_columns = []
-        other_columns = []
-        
-        # Key columns that are typically from diameter file
-        diameter_keywords = ['diameter', 'ring_width', 'ringwidth', 'prediction', 'dark_edge', 'dark_ratio', 'mask_id', 'mean_intensity', 'area', 'circularity']
-        
-        for col in all_columns:
+        # Step 2: Add brightfield diameter (prioritize standardized name, then look for alternatives)
+        brightfield_diameter_cols = ['Brightfield_Diameter']
+        # Also check for common diameter column names (from diameter file)
+        for col in list(all_columns):
             col_lower = col.lower()
-            
-            # Check if it's a diameter column (has Diameter_ prefix or matches diameter keywords)
-            if col.startswith('Diameter_') or any(keyword in col_lower for keyword in diameter_keywords):
-                diameter_columns.append(col)
-            # Check if it's a fluorescent column (has Fluorescent_ prefix)
-            elif col.startswith('Fluorescent_'):
-                fluorescent_columns.append(col)
-            else:
-                other_columns.append(col)
+            if 'diameter' in col_lower and 'prediction' not in col_lower and 'dark_edge' not in col_lower:
+                if col not in brightfield_diameter_cols and not col.startswith('Fluorescent_'):
+                    brightfield_diameter_cols.append(col)
+        for col in brightfield_diameter_cols:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+                break
         
-        # Step 3: Sort within each group by importance
-        def sort_by_importance(cols):
-            """Sort columns: key columns first, then alphabetically"""
-            key_cols = []
-            other_cols = []
-            
-            key_keywords = ['diameter', 'ring_width', 'ringwidth', 'prediction', 'dark_edge', 'dark_ratio', 'mask_id', 'mean_intensity', 'area', 'circularity']
-            
-            for col in cols:
-                col_lower = col.lower()
-                if any(keyword in col_lower for keyword in key_keywords):
-                    key_cols.append(col)
-                else:
-                    other_cols.append(col)
-            
-            # Sort key columns by keyword priority
-            key_cols_sorted = []
-            for keyword in key_keywords:
-                for col in key_cols:
-                    if keyword in col.lower() and col not in key_cols_sorted:
-                        key_cols_sorted.append(col)
-            # Add any remaining key columns
-            for col in key_cols:
-                if col not in key_cols_sorted:
-                    key_cols_sorted.append(col)
-            
-            # Sort other columns alphabetically
-            other_cols.sort()
-            
-            return key_cols_sorted + other_cols
+        # Step 3: Add brightfield intensity (prioritize standardized name, then look for alternatives)
+        brightfield_intensity_cols = ['Brightfield_Mean_Intensity']
+        # Also check for common intensity column names from diameter file
+        for col in list(all_columns):
+            col_lower = col.lower()
+            if ('mean_intensity' in col_lower or 'intensity' in col_lower):
+                if not col.startswith('Fluorescent_') and not col.startswith('Reference_'):
+                    if col not in brightfield_intensity_cols:
+                        brightfield_intensity_cols.append(col)
+        for col in brightfield_intensity_cols:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+                break
         
-        # Add diameter columns (grouped together)
-        sorted_columns.extend(sort_by_importance(diameter_columns))
+        # Step 4: Add fluorescent intensity (prioritize standardized name, then look for alternatives)
+        fluorescent_intensity_cols = ['Fluorescent_Mean_Intensity']
+        for col in list(all_columns):
+            col_lower = col.lower()
+            if ('fluorescent' in col_lower and ('mean_intensity' in col_lower or 'intensity' in col_lower)) or \
+               (col.startswith('Fluorescent_') and ('mean_intensity' in col_lower or 'intensity' in col_lower)):
+                if col not in fluorescent_intensity_cols:
+                    fluorescent_intensity_cols.append(col)
+        for col in fluorescent_intensity_cols:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+                break
         
-        # Add fluorescent columns (grouped together)
-        sorted_columns.extend(sort_by_importance(fluorescent_columns))
+        # Step 5: Add reference intensity (if provided, prioritize standardized name)
+        reference_intensity_cols = ['Reference_Mean_Intensity']
+        for col in list(all_columns):
+            col_lower = col.lower()
+            if ('reference' in col_lower and ('mean_intensity' in col_lower or 'intensity' in col_lower)) or \
+               (col.startswith('Reference_') and ('mean_intensity' in col_lower or 'intensity' in col_lower)):
+                if col not in reference_intensity_cols:
+                    reference_intensity_cols.append(col)
+        for col in reference_intensity_cols:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+                break
         
-        # Add other columns
-        sorted_columns.extend(sort_by_importance(other_columns))
+        # Step 6: Add ratio column (prioritize standardized name)
+        ratio_cols = ['Ratio_of_Fluorescent_and_Ref_Dye', 'Ratio of Fluorescent and Ref Dye']
+        for col in list(all_columns):
+            col_lower = col.lower()
+            if 'ratio' in col_lower and ('fluorescent' in col_lower or 'ref' in col_lower or 'dye' in col_lower):
+                if col not in ratio_cols:
+                    ratio_cols.append(col)
+        for col in ratio_cols:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+                break
+        
+        # Step 7: Add predicted diameter (if provided, prioritize standardized name)
+        predicted_diameter_cols = ['Predicted_Diameter']
+        for col in list(all_columns):
+            col_lower = col.lower()
+            if ('prediction' in col_lower and 'diameter' in col_lower) or \
+               ('dark_edge' in col_lower and 'diameter' in col_lower and 'prediction' not in col_lower):
+                if col not in predicted_diameter_cols:
+                    predicted_diameter_cols.append(col)
+        for col in predicted_diameter_cols:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+                break
+        
+        # Step 8: Add ring width (if provided)
+        ring_width_cols = ['Ring_Width', 'Ring_Width_μm']
+        for col in list(all_columns):
+            col_lower = col.lower()
+            if 'ring_width' in col_lower or 'ringwidth' in col_lower:
+                if col not in ring_width_cols:
+                    ring_width_cols.append(col)
+        for col in ring_width_cols:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+                break
+        
+        # Only output essential columns - no other columns needed
+        # sorted_columns now contains only the essential columns in the correct order
         
         # Write matched rows with group marker
         if matched_rows:
@@ -3686,30 +3956,30 @@ def match_csv_files():
                 csv_lines.append(','.join(values))
         
         # Write only diameter rows
-        if only_diameter_rows:
+        if processed_only_diameter_rows:
             if csv_lines:  # Add separator if there's previous content
                 csv_lines.append('')
                 # Add separator row with dashes (one per column)
                 separator_values = ['---' for _ in sorted_columns]
                 csv_lines.append(','.join(separator_values))
                 csv_lines.append('')
-            csv_lines.append('=== ONLY IN DIAMETER FILE (Total: {}) ==='.format(len(only_diameter_rows)))
+            csv_lines.append('=== ONLY IN DIAMETER FILE (Total: {}) ==='.format(len(processed_only_diameter_rows)))
             csv_lines.append(','.join([escape_csv_value(col) for col in sorted_columns]))
-            for row in only_diameter_rows:
+            for row in processed_only_diameter_rows:
                 values = [escape_csv_value(row.get(col, '')) for col in sorted_columns]
                 csv_lines.append(','.join(values))
         
         # Write only fluorescent rows
-        if only_fluorescent_rows:
+        if processed_only_fluorescent_rows:
             if csv_lines:  # Add separator if there's previous content
                 csv_lines.append('')
                 # Add separator row with dashes (one per column)
                 separator_values = ['---' for _ in sorted_columns]
                 csv_lines.append(','.join(separator_values))
                 csv_lines.append('')
-            csv_lines.append('=== ONLY IN FLUORESCENT FILE (Total: {}) ==='.format(len(only_fluorescent_rows)))
+            csv_lines.append('=== ONLY IN FLUORESCENT FILE (Total: {}) ==='.format(len(processed_only_fluorescent_rows)))
             csv_lines.append(','.join([escape_csv_value(col) for col in sorted_columns]))
-            for row in only_fluorescent_rows:
+            for row in processed_only_fluorescent_rows:
                 values = [escape_csv_value(row.get(col, '')) for col in sorted_columns]
                 csv_lines.append(','.join(values))
         
@@ -3768,6 +4038,259 @@ def match_csv_files():
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/calculate_droplet_concentration', methods=['POST'])
+def calculate_droplet_concentration():
+    """Calculate molecule concentration from matched CSV using Poisson statistics"""
+    try:
+        import csv
+        
+        if 'matched_csv' not in request.files:
+            return jsonify({'success': False, 'error': 'No CSV file provided'})
+        
+        matched_csv_file = request.files['matched_csv']
+        
+        if matched_csv_file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'})
+        
+        # Read CSV content
+        csv_content = matched_csv_file.read().decode('utf-8')
+        csv_lines = csv_content.split('\n')
+        
+        # Find the actual header row (first line that contains 'Center_X_px')
+        header_line_idx = None
+        for i, line in enumerate(csv_lines):
+            if 'Center_X_px' in line or 'Center_X' in line:
+                header_line_idx = i
+                break
+        
+        if header_line_idx is None:
+            return jsonify({'success': False, 'error': 'Could not find CSV header row'})
+        
+        # Parse CSV starting from the header row
+        csv_content_from_header = '\n'.join(csv_lines[header_line_idx:])
+        csv_reader = csv.DictReader(io.StringIO(csv_content_from_header))
+        rows = list(csv_reader)
+        
+        if not rows:
+            return jsonify({'success': False, 'error': 'CSV file is empty'})
+        
+        # Extract diameters and determine occupancy
+        diameters_um = []
+        occupancy = []
+        
+        for row in rows:
+            # Skip separator rows and section headers
+            center_x = str(row.get('Center_X_px', '') or row.get('Center_X', ''))
+            if not center_x or any(keyword in center_x.upper() for keyword in ['===', '---', 'TOTAL']):
+                continue
+            
+            # Check if row has fluorescent data (matched row) or not (only in diameter file)
+            has_fluorescent = False
+            fluorescent_val_str = str(row.get('Fluorescent_Mean_Intensity', '') or '')
+            if fluorescent_val_str and fluorescent_val_str.strip():
+                try:
+                    fluorescent_val = float(fluorescent_val_str)
+                    if fluorescent_val > 0:  # Has valid fluorescent data
+                        has_fluorescent = True
+                except (ValueError, TypeError):
+                    pass
+            
+            # Get diameter (prefer Predicted_Diameter, fallback to Brightfield_Diameter)
+            diameter = None
+            predicted_diam_str = str(row.get('Predicted_Diameter', '') or '')
+            if predicted_diam_str and predicted_diam_str.strip():
+                try:
+                    diameter = float(predicted_diam_str)
+                except (ValueError, TypeError):
+                    pass
+            
+            if diameter is None or diameter <= 0:
+                brightfield_diam_str = str(row.get('Brightfield_Diameter', '') or '')
+                if brightfield_diam_str and brightfield_diam_str.strip():
+                    try:
+                        diameter = float(brightfield_diam_str)
+                    except (ValueError, TypeError):
+                        pass
+            
+            if diameter is None or diameter <= 0:
+                continue
+            
+            # Determine occupancy:
+            # - If has fluorescent data → matched row → occupancy = 1
+            # - If has coordinates and diameter but no fluorescent → only in diameter → occupancy = 0
+            if has_fluorescent:
+                # Matched row: occupied
+                diameters_um.append(diameter)
+                occupancy.append(1)
+            elif center_x and center_x.strip() and not has_fluorescent:
+                # Only in diameter file: empty
+                diameters_um.append(diameter)
+                occupancy.append(0)
+            # Skip "only in fluorescent" rows (no diameter data)
+        
+        if len(diameters_um) == 0:
+            return jsonify({'success': False, 'error': 'No valid droplet data found in CSV'})
+        
+        # Convert to numpy arrays
+        diameters_um = np.array(diameters_um)
+        occupancy = np.array(occupancy)
+        
+        # Calculate volumes in pL
+        radius_um = diameters_um / 2
+        volumes_pL = (4/3) * np.pi * radius_um**3 / 1000
+        
+        V_all = volumes_pL
+        V_occupied = volumes_pL[occupancy == 1]
+        V_total = np.sum(volumes_pL)
+        
+        N_obs = np.sum(occupancy)
+        num_droplets = len(diameters_um)
+        f_pos = N_obs / num_droplets if num_droplets > 0 else 0
+        
+        # Initial concentration guess (Simple Poisson)
+        if f_pos >= 1:
+            C_init = 1e-6
+        else:
+            V_avg = np.mean(volumes_pL)
+            C_init = -np.log(1 - f_pos + 1e-15) / V_avg
+        
+        # Simple Poisson estimate (copies/μL)
+        simple_poisson_copies_per_uL = C_init * 1e6
+        
+        # Approximate fit (Newton's method)
+        C_approx = solve_approx_newton(V_all, N_obs, C_init)
+        
+        # Accurate fit
+        if len(V_occupied) > 0:
+            C_bestfit_pL = solve_accurate_newton(V_occupied, V_total, C_approx)
+        else:
+            C_bestfit_pL = 0.0
+        
+        # Standard error estimation
+        sigma_pL = estimate_standard_error(diameters_um, C_bestfit_pL)
+        
+        # Calculate statistics
+        mean_diameter = np.mean(diameters_um)
+        std_diameter = np.std(diameters_um)
+        mean_volume = np.mean(volumes_pL)
+        std_volume = np.std(volumes_pL)
+        
+        # Build output filename based on input CSV
+        original_filename = matched_csv_file.filename
+        if original_filename:
+            base_name = os.path.splitext(os.path.basename(original_filename))[0]
+            output_filename = f\"concentration_{base_name}.csv\"
+        else:
+            timestamp = datetime.now().strftime(\"%Y%m%d_%H%M%S\")
+            output_filename = f\"concentration_{timestamp}.csv\"
+        
+        return jsonify({
+            'success': True,
+            'total_droplets': int(num_droplets),
+            'occupied_droplets': int(N_obs),
+            'empty_droplets': int(num_droplets - N_obs),
+            'occupancy_rate': float(f_pos),
+            'mean_diameter': float(mean_diameter),
+            'std_diameter': float(std_diameter),
+            'mean_volume': float(mean_volume),
+            'std_volume': float(std_volume),
+            'total_volume': float(V_total),
+            'simple_poisson_copies_per_uL': float(simple_poisson_copies_per_uL),
+            'concentration_copies_per_uL': float(C_bestfit_pL * 1e6),
+            'std_error_copies_per_uL': float(sigma_pL * 1e6),
+            'output_filename': output_filename
+        })
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+def solve_approx_newton(V_all, N_obs, C_init, tol=1e-5, max_iter=100):
+    """Approximate Newton solver (S5-S6)"""
+    C_old = C_init
+    for iter in range(max_iter):
+        exp_term = np.exp(-C_old * V_all)
+        F_prime = N_obs - np.sum(1 - exp_term)  # S5
+        dF_prime = np.sum(V_all * exp_term)  # S6
+        if abs(dF_prime) < 1e-15:
+            dF_prime = 1e-15 * np.sign(dF_prime) if dF_prime != 0 else 1e-15
+        C_new = C_old - F_prime / dF_prime  # S3
+        if C_new < 0:
+            C_new = abs(C_old) / 2
+        rel_change = abs((C_new - C_old) / max(abs(C_old), 1e-15))
+        if rel_change < tol:
+            return C_new
+        C_old = C_new
+    return C_new
+
+def solve_accurate_newton(V_occupied, V_total, C_init, tol=1e-5, max_iter=100):
+    """Accurate Newton solver (S1-S2)"""
+    if len(V_occupied) == 0:
+        return 0.0
+    C_old = C_init
+    for iter in range(max_iter):
+        exp_term = np.exp(-C_old * V_occupied)
+        denom = 1 - exp_term
+        denom[denom < 1e-15] = 1e-15
+        F = V_total - np.sum(V_occupied / denom)  # S1
+        num_dF = V_occupied**2 * exp_term
+        denom_dF = denom**2
+        dF = np.sum(num_dF / denom_dF)  # S2
+        if abs(dF) < 1e-15:
+            dF = 1e-15 * np.sign(dF) if dF != 0 else 1e-15
+        C_new = C_old - F / dF  # S3
+        if C_new < 0:
+            C_new = abs(C_old) / 2
+        rel_change = abs((C_new - C_old) / max(abs(C_old), 1e-15))
+        if rel_change < tol:
+            return C_new
+        C_old = C_new
+    return C_new
+
+def estimate_standard_error(diameters_um, C_bestfit_pL, N_sim=1000):
+    """Estimate standard error using Monte Carlo simulation"""
+    measured_diams = diameters_um.flatten()
+    V_true_pL = (4/3 * np.pi * (measured_diams / 2)**3) / 1000
+    C_sims = np.zeros(N_sim)
+    
+    for sim in range(N_sim):
+        # Simulate occupancy (Poisson: occupied if >=1)
+        lambda_ = C_bestfit_pL * V_true_pL
+        occ_sim = np.random.poisson(lambda_) > 0
+        
+        # Add Gaussian diameter errors
+        sigma_d = np.maximum(1.0, 0.08 * measured_diams)  # um
+        err_d = np.random.normal(0, sigma_d, size=measured_diams.shape)
+        diams_sim = measured_diams + err_d
+        diams_sim = np.maximum(diams_sim, 0.1)  # Ensure positive
+        
+        # Simulated volumes
+        V_sim_pL = (4/3 * np.pi * (diams_sim / 2)**3) / 1000
+        V_total_sim = np.sum(V_sim_pL)
+        V_all_sim = V_sim_pL
+        V_occ_sim = V_sim_pL[occ_sim]
+        N_obs_sim = np.sum(occ_sim)
+        
+        # Initial guess
+        num_drops = len(V_sim_pL)
+        f_pos_sim = N_obs_sim / num_drops if num_drops > 0 else 0
+        V_avg_sim = np.mean(V_sim_pL)
+        if f_pos_sim >= 1:
+            C_init_sim = 1e-6
+        else:
+            C_init_sim = -np.log(1 - f_pos_sim + 1e-15) / V_avg_sim
+        
+        # Fit
+        C_approx_sim = solve_approx_newton(V_all_sim, N_obs_sim, C_init_sim)
+        if len(V_occ_sim) > 0:
+            C_sim = solve_accurate_newton(V_occ_sim, V_total_sim, C_approx_sim)
+        else:
+            C_sim = 0.0
+        C_sims[sim] = C_sim
+    
+    return np.std(C_sims)
 
 if __name__ == '__main__':
     # Ensure required directories exist

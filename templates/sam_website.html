@@ -1045,7 +1045,7 @@
                 <div class="control-group" id="matchPanel" style="margin-top: 20px;">
                     <h3><i class="fas fa-link"></i> Match Panel</h3>
                     <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
-                        Upload two CSV files (Brightfield and fluorescent) to match rows based on x,y coordinates (within ±5 pixels).
+                        Upload CSV files (Brightfield and fluorescent required, Reference Dye optional) to match rows based on x,y coordinates (within ±5 pixels). If Reference Dye is provided, the ratio of fluorescent/ref dye mean intensity will be calculated.
                     </p>
                     
                     <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
@@ -1066,7 +1066,7 @@
                         </div>
                         
                         <!-- Fluorescent File Row -->
-                        <div>
+                        <div style="margin-bottom: 15px;">
                             <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
                                 <i class="fas fa-file-csv"></i> Fluorescent File:
                             </label>
@@ -1078,6 +1078,22 @@
                             </div>
                             <div id="fluorescentFileName" style="margin-top: 5px; font-size: 0.85em; color: #28a745; display: none;">
                                 <i class="fas fa-check-circle"></i> <span id="fluorescentFileNameText"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Reference Dye File Row -->
+                        <div>
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
+                                <i class="fas fa-file-csv"></i> Reference Dye File (Optional):
+                            </label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="file" id="referenceDyeFileInput" accept=".csv" style="flex: 1; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 0.9em;">
+                                <button class="btn" onclick="document.getElementById('referenceDyeFileInput').click()" style="background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%); color: white; font-size: 0.85em; padding: 8px 16px;">
+                                    <i class="fas fa-folder-open"></i> Browse
+                                </button>
+                            </div>
+                            <div id="referenceDyeFileName" style="margin-top: 5px; font-size: 0.85em; color: #28a745; display: none;">
+                                <i class="fas fa-check-circle"></i> <span id="referenceDyeFileNameText"></span>
                             </div>
                         </div>
                     </div>
@@ -1127,6 +1143,66 @@
                                 <!-- Rows only in fluorescent file will be displayed here -->
                             </div>
                             <div id="onlyFluorescentCount" style="margin-top: 5px; font-size: 0.85em; color: #666;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Non-uniform Droplet Calculation Panel -->
+                <div class="control-group" id="dropletCalculationPanel" style="margin-top: 20px;">
+                    <h3><i class="fas fa-calculator"></i> Non-uniform Droplet Calculation</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                        Upload a matched CSV file to calculate molecule concentration using Poisson statistics for non-uniform droplet sizes. Matched rows (with fluorescent data) are treated as occupied (1), and rows only in diameter file are treated as empty (0).
+                    </p>
+                    
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <!-- Matched CSV File Upload -->
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
+                                <i class="fas fa-file-csv"></i> Matched CSV File:
+                            </label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="file" id="matchedCsvFileInput" accept=".csv" style="flex: 1; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 0.9em;">
+                                <button class="btn" onclick="document.getElementById('matchedCsvFileInput').click()" style="background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white; font-size: 0.85em; padding: 8px 16px;">
+                                    <i class="fas fa-folder-open"></i> Browse
+                                </button>
+                            </div>
+                            <div id="matchedCsvFileName" style="margin-top: 5px; font-size: 0.85em; color: #28a745; display: none;">
+                                <i class="fas fa-check-circle"></i> <span id="matchedCsvFileNameText"></span>
+                            </div>
+                            <small style="color: #666; font-size: 0.85em; margin-top: 5px; display: block;">
+                                Matched rows (with fluorescent data) = occupied (1)<br>
+                                Only in diameter file rows = empty (0)
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <!-- Calculate Button -->
+                    <div style="text-align: center; margin-bottom: 15px;">
+                        <button class="btn" onclick="calculateDropletConcentration()" id="calculateDropletBtn" 
+                                style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; font-size: 1em; padding: 12px 30px;">
+                            <i class="fas fa-calculator"></i> Calculate Concentration
+                        </button>
+                    </div>
+                    
+                    <!-- Calculation Results -->
+                    <div id="dropletCalculationResults" style="display: none; margin-top: 20px;">
+                        <h4 style="color: #495057; margin-bottom: 15px; border-bottom: 2px solid #667eea; padding-bottom: 8px;">
+                            <i class="fas fa-chart-line"></i> Calculation Results
+                        </h4>
+                        
+                        <!-- Results Table -->
+                        <div style="margin-bottom: 20px;">
+                            <div id="dropletResultsTable" style="overflow-x: auto;">
+                                <!-- Results table will be displayed here -->
+                            </div>
+                        </div>
+                        
+                        <!-- Download Results Button -->
+                        <div style="text-align: center;">
+                            <button class="btn" onclick="downloadDropletResults()" id="downloadDropletResultsBtn"
+                                    style="background: linear-gradient(135deg, #007bff 0%, #0056b3 100%); color: white; font-size: 0.9em; padding: 10px 20px;">
+                                <i class="fas fa-download"></i> Download Results CSV
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1302,6 +1378,10 @@
                         <label style="display: none; margin-top: 8px; font-size: 0.85em; color: #333; cursor: pointer;" id="referenceDyeLabel">
                             <input type="checkbox" id="referenceDyeCheckbox" style="margin-right: 5px;">
                             Reference Dye
+                        </label>
+                        <label style="display: none; margin-top: 8px; font-size: 0.85em; color: #333; cursor: pointer;" id="fluorescentNearRefDyeLabel">
+                            <input type="checkbox" id="fluorescentNearRefDyeCheckbox" style="margin-right: 5px;">
+                            Fluorescent Near Ref Dye
                         </label>
                     </div>
                     
@@ -1816,6 +1896,7 @@
         function initializeMatchPanel() {
             const diameterInput = document.getElementById('diameterFileInput');
             const fluorescentInput = document.getElementById('fluorescentFileInput');
+            const referenceDyeInput = document.getElementById('referenceDyeFileInput');
             
             // Handle Brightfield file selection
             if (diameterInput) {
@@ -1838,12 +1919,24 @@
                     }
                 });
             }
+            
+            // Handle reference dye file selection
+            if (referenceDyeInput) {
+                referenceDyeInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        document.getElementById('referenceDyeFileNameText').textContent = file.name;
+                        document.getElementById('referenceDyeFileName').style.display = 'block';
+                    }
+                });
+            }
         }
         
         // Match files function
         async function matchFiles() {
             const diameterFile = document.getElementById('diameterFileInput').files[0];
             const fluorescentFile = document.getElementById('fluorescentFileInput').files[0];
+            const referenceDyeFile = document.getElementById('referenceDyeFileInput').files[0];
             
             if (!diameterFile || !fluorescentFile) {
                 showError('Please select both Brightfield and fluorescent CSV files.');
@@ -1861,6 +1954,9 @@
                 const formData = new FormData();
                 formData.append('diameter_file', diameterFile);
                 formData.append('fluorescent_file', fluorescentFile);
+                if (referenceDyeFile) {
+                    formData.append('reference_dye_file', referenceDyeFile);
+                }
                 
                 const response = await fetch('/match_csv_files', {
                     method: 'POST',
@@ -1872,7 +1968,11 @@
                 if (result.success) {
                     // Export CSV file instead of displaying results
                     downloadMatchResultsCSV(result);
-                    showSuccess(`Matching completed! Found ${result.matched_count} matches. CSV file downloaded.`);
+                    let successMsg = `Matching completed! Found ${result.matched_count} matches. CSV file downloaded.`;
+                    if (referenceDyeFile) {
+                        successMsg += ' (with reference dye ratio)';
+                    }
+                    showSuccess(successMsg);
                 } else {
                     showError(result.error || 'Matching failed');
                 }
@@ -1945,6 +2045,126 @@
             onlyFluorescentDiv.innerHTML = createResultsTable(result.only_fluorescent_rows, []);
             document.getElementById('onlyFluorescentCount').textContent = `Total: ${result.only_fluorescent_count} rows`;
         }
+        
+        // Non-uniform droplet calculation
+        let dropletCalculationResults = null;
+        
+        async function calculateDropletConcentration() {
+            const fileInput = document.getElementById('matchedCsvFileInput');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('Please select a matched CSV file first.');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('matched_csv', fileInput.files[0]);
+            
+            const calculateBtn = document.getElementById('calculateDropletBtn');
+            calculateBtn.disabled = true;
+            calculateBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating...';
+            
+            try {
+                const response = await fetch('/calculate_droplet_concentration', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    dropletCalculationResults = result;
+                    displayDropletResults(result);
+                    document.getElementById('dropletCalculationResults').style.display = 'block';
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch (error) {
+                console.error('Error calculating concentration:', error);
+                alert('Error calculating concentration: ' + error.message);
+            } finally {
+                calculateBtn.disabled = false;
+                calculateBtn.innerHTML = '<i class="fas fa-calculator"></i> Calculate Concentration';
+            }
+        }
+        
+        function displayDropletResults(result) {
+            const tableDiv = document.getElementById('dropletResultsTable');
+            
+            let html = '<table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">';
+            html += '<thead><tr style="background: #667eea; color: white;">';
+            html += '<th style="padding: 10px; text-align: left; border: 1px solid #ddd;">Metric</th>';
+            html += '<th style="padding: 10px; text-align: right; border: 1px solid #ddd;">Value</th>';
+            html += '</tr></thead><tbody>';
+            
+            const metrics = [
+                ['Total Droplets', result.total_droplets],
+                ['Occupied Droplets', result.occupied_droplets],
+                ['Empty Droplets', result.empty_droplets],
+                ['Occupancy Rate', (result.occupancy_rate * 100).toFixed(2) + '%'],
+                ['Mean Diameter (μm)', result.mean_diameter.toFixed(2)],
+                ['Std Diameter (μm)', result.std_diameter.toFixed(2)],
+                ['Mean Volume (pL)', result.mean_volume.toFixed(4)],
+                ['Std Volume (pL)', result.std_volume.toFixed(4)],
+                ['Total Volume (pL)', result.total_volume.toFixed(2)],
+                ['Simple Poisson (copies/μL)', result.simple_poisson_copies_per_uL.toExponential(4)],
+                ['Concentration (copies/μL)', result.concentration_copies_per_uL.toExponential(4)],
+                ['Std Error (copies/μL)', result.std_error_copies_per_uL.toExponential(4)]
+            ];
+            
+            metrics.forEach(([label, value]) => {
+                html += `<tr style="border-bottom: 1px solid #ddd;">`;
+                html += `<td style="padding: 8px; font-weight: 600;">${label}</td>`;
+                html += `<td style="padding: 8px; text-align: right;">${value}</td>`;
+                html += `</tr>`;
+            });
+            
+            html += '</tbody></table>';
+            tableDiv.innerHTML = html;
+        }
+        
+        function downloadDropletResults() {
+            if (!dropletCalculationResults) {
+                alert('No results to download. Please run calculation first.');
+                return;
+            }
+            
+            // Create CSV content
+            const csvLines = [];
+            csvLines.push('Metric,Value');
+            csvLines.push(`Total Droplets,${dropletCalculationResults.total_droplets}`);
+            csvLines.push(`Occupied Droplets,${dropletCalculationResults.occupied_droplets}`);
+            csvLines.push(`Empty Droplets,${dropletCalculationResults.empty_droplets}`);
+            csvLines.push(`Occupancy Rate,${dropletCalculationResults.occupancy_rate * 100}%`);
+            csvLines.push(`Mean Diameter (μm),${dropletCalculationResults.mean_diameter}`);
+            csvLines.push(`Std Diameter (μm),${dropletCalculationResults.std_diameter}`);
+            csvLines.push(`Mean Volume (pL),${dropletCalculationResults.mean_volume}`);
+            csvLines.push(`Std Volume (pL),${dropletCalculationResults.std_volume}`);
+            csvLines.push(`Total Volume (pL),${dropletCalculationResults.total_volume}`);
+            csvLines.push(`Simple Poisson (copies/μL),${dropletCalculationResults.simple_poisson_copies_per_uL}`);
+            csvLines.push(`Concentration (copies/μL),${dropletCalculationResults.concentration_copies_per_uL}`);
+            csvLines.push(`Std Error (copies/μL),${dropletCalculationResults.std_error_copies_per_uL}`);
+            
+            const csvContent = csvLines.join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const filename = dropletCalculationResults.output_filename || `concentration_${new Date().toISOString().split('T')[0]}.csv`;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }
+        
+        // File input change handler for matched CSV
+        document.getElementById('matchedCsvFileInput').addEventListener('change', function(e) {
+            if (e.target.files.length > 0) {
+                document.getElementById('matchedCsvFileName').style.display = 'block';
+                document.getElementById('matchedCsvFileNameText').textContent = e.target.files[0].name;
+            }
+        });
         
         // Create results table HTML
         function createResultsTable(rows, highlightColumns) {
@@ -3212,6 +3432,12 @@
                 referenceDyeLabel.style.display = 'block';
             }
             
+            // Show fluorescent near ref dye checkbox when export buttons are visible
+            const fluorescentNearRefDyeLabel = document.getElementById('fluorescentNearRefDyeLabel');
+            if (fluorescentNearRefDyeLabel) {
+                fluorescentNearRefDyeLabel.style.display = 'block';
+            }
+            
             // Show intensity filter panel
             const intensityPanel = document.getElementById('intensityFilterPanel');
             if (intensityPanel) {
@@ -4176,11 +4402,15 @@
 
                 // Check if reference dye checkbox is enabled
                 const referenceDye = document.getElementById('referenceDyeCheckbox')?.checked || false;
+                
+                // Check if fluorescent near ref dye checkbox is enabled
+                const fluorescentNearRefDye = document.getElementById('fluorescentNearRefDyeCheckbox')?.checked || false;
 
                 // Build request body
                 const requestBody = {
                     include_ring_width: includeRingWidth,
-                    reference_dye: referenceDye
+                    reference_dye: referenceDye,
+                    fluorescent_near_ref_dye: fluorescentNearRefDye
                 };
                 
                 // Add ring width parameters if enabled
@@ -4281,10 +4511,14 @@
                 // Check if reference dye checkbox is enabled
                 const referenceDye = document.getElementById('referenceDyeCheckbox')?.checked || false;
                 
+                // Check if fluorescent near ref dye checkbox is enabled
+                const fluorescentNearRefDye = document.getElementById('fluorescentNearRefDyeCheckbox')?.checked || false;
+                
                 // Build request body
                 const requestBody = {
                     include_ring_width: includeRingWidth,
-                    reference_dye: referenceDye
+                    reference_dye: referenceDye,
+                    fluorescent_near_ref_dye: fluorescentNearRefDye
                 };
                 if (includeRingWidth) {
                     requestBody.edge_width = edgeWidth;
@@ -4368,7 +4602,9 @@
                 if (includeRingWidth) {
                     successMsg += ` with ring width data`;
                 }
-                if (referenceDye) {
+                if (fluorescentNearRefDye) {
+                    successMsg += ` (fluorescent format)`;
+                } else if (referenceDye) {
                     successMsg += ` (reference dye format)`;
                 }
                 if (errorCount > 0) {
