@@ -2048,6 +2048,7 @@
         
         // Non-uniform droplet calculation
         let dropletCalculationResults = null;
+        let matchedCsvOriginalFilename = null;
         
         async function calculateDropletConcentration() {
             const fileInput = document.getElementById('matchedCsvFileInput');
@@ -2056,6 +2057,9 @@
                 alert('Please select a matched CSV file first.');
                 return;
             }
+            
+            // Store the original filename
+            matchedCsvOriginalFilename = fileInput.files[0].name;
             
             const formData = new FormData();
             formData.append('matched_csv', fileInput.files[0]);
@@ -2150,7 +2154,18 @@
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            const filename = dropletCalculationResults.output_filename || `concentration_${new Date().toISOString().split('T')[0]}.csv`;
+            
+            // Construct filename: concentration_<matched_csv_filename>.csv
+            let filename;
+            if (dropletCalculationResults.output_filename) {
+                filename = dropletCalculationResults.output_filename;
+            } else if (matchedCsvOriginalFilename) {
+                // Extract base name without extension
+                const baseName = matchedCsvOriginalFilename.replace(/\.[^/.]+$/, '');
+                filename = `concentration_${baseName}.csv`;
+            } else {
+                filename = `concentration_${new Date().toISOString().split('T')[0]}.csv`;
+            }
             a.download = filename;
             document.body.appendChild(a);
             a.click();
@@ -2161,6 +2176,7 @@
         // File input change handler for matched CSV
         document.getElementById('matchedCsvFileInput').addEventListener('change', function(e) {
             if (e.target.files.length > 0) {
+                matchedCsvOriginalFilename = e.target.files[0].name;
                 document.getElementById('matchedCsvFileName').style.display = 'block';
                 document.getElementById('matchedCsvFileNameText').textContent = e.target.files[0].name;
             }

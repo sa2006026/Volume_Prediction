@@ -4180,10 +4180,10 @@ def calculate_droplet_concentration():
         original_filename = matched_csv_file.filename
         if original_filename:
             base_name = os.path.splitext(os.path.basename(original_filename))[0]
-            output_filename = f\"concentration_{base_name}.csv\"
+            output_filename = f"concentration_{base_name}.csv"
         else:
-            timestamp = datetime.now().strftime(\"%Y%m%d_%H%M%S\")
-            output_filename = f\"concentration_{timestamp}.csv\"
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"concentration_{timestamp}.csv"
         
         return jsonify({
             'success': True,

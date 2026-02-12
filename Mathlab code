@@ -1,0 +1,324 @@
+function ddpcr_exact_method(csvfile)
+    % ddpcr_exact_method - Estimate molecule concentration from droplet data
+    % for multiple independent samples in CSV (paired columns: diam, occ).
+    % Uses Yen et al. model exactly as described, with plots and std error.
+
+    % Read data
+    data = readmatrix('/Users/jimmy/Library/CloudStorage/OneDrive-TheChineseUniversityofHongKong/work/Mathlab Code/0816_microfludics/droplet_occupancy_2_024.csv');
+    
+    % Determine number of datasets (each dataset has 2 columns)
+    num_datasets = size(data, 2) / 2;
+    if mod(size(data, 2), 2) ~= 0
+        error('Number of columns must be even (paired diameter/occupancy).');
+    end
+    
+    % Initialize results storage
+    results = struct();
+    
+    % Create color map for different datasets
+    colors = lines(num_datasets);
+    
+    % Initialize arrays to store table data
+    droplets = zeros(num_datasets, 1);
+    on_count = zeros(num_datasets, 1);
+    pos_percent = zeros(num_datasets, 1);
+    mean_diam = zeros(num_datasets, 1);
+    std_diam = zeros(num_datasets, 1);
+    mean_vol = zeros(num_datasets, 1);
+    std_vol = zeros(num_datasets, 1);
+    total_vol = zeros(num_datasets, 1);
+    simple_poisson = zeros(num_datasets, 1);
+    newton_estimate = zeros(num_datasets, 1);
+    std_error = zeros(num_datasets, 1);
+    
+    % Process each dataset
+    for dataset_idx = 1:num_datasets
+        % Extract data for this dataset
+        col_diameter = (dataset_idx-1)*2 + 1;
+        col_occupancy = (dataset_idx-1)*2 + 2;
+        
+        diameters_um = data(:, col_diameter);
+        occupancy = data(:, col_occupancy);
+        
+        % Remove NaN values (empty cells in CSV)
+        valid_mask = ~isnan(diameters_um) & ~isnan(occupancy);
+        diameters_um = diameters_um(valid_mask);
+        occupancy = occupancy(valid_mask);
+        
+        num_droplets = numel(diameters_um);
+        droplets(dataset_idx) = num_droplets;
+        
+        if num_droplets == 0
+            warning('Sample %d: No valid droplet data found after filtering NaNs.', dataset_idx);
+            continue;
+        end
+
+        % Calculate volumes in pL
+        radius_um = diameters_um / 2;
+        volumes_pL = (4/3) * pi * radius_um.^3 / 1000;
+        V_all = volumes_pL;
+        V_occupied = volumes_pL(occupancy == 1);
+        V_total = sum(volumes_pL);
+        total_vol(dataset_idx) = V_total;
+        fprintf('Sample %d: Total measured volume: %.2f pL\n', dataset_idx, V_total);
+
+        N_obs = sum(occupancy);
+        on_count(dataset_idx) = N_obs;
+        f_pos = N_obs / num_droplets;
+        pos_percent(dataset_idx) = 100 * f_pos;
+        if f_pos >= 1
+            C_init = 1e-6;  % Safeguard if all positive
+        else
+            C_init = -log(1 - f_pos + 1e-15) / mean(volumes_pL);
+        end
+        simple_poisson(dataset_idx) = C_init * 1e6;
+        fprintf('Sample %d: Initial concentration guess: %.6e copies/uL\n', dataset_idx, C_init * 1e6);
+        fprintf('Sample %d: Observed positives N_obs: %d (%.2f%%)\n', dataset_idx, N_obs, 100 * f_pos);
+        fprintf('Sample %d: Loaded data for %d droplets.\n', dataset_idx, num_droplets);
+
+        % Statistical measures
+        mean_diam(dataset_idx) = mean(diameters_um);
+        std_diam(dataset_idx) = std(diameters_um);
+        mean_vol(dataset_idx) = mean(volumes_pL);
+        std_vol(dataset_idx) = std(volumes_pL);
+
+        % Robust approx fit (S5–S6 over all droplets)
+        [C_approx, iter_approx] = solve_approx_newton(V_all, N_obs, C_init);
+
+        % Accurate fit (S1–S2 over occupied droplets)
+        [C_bestfit_pL, iter_accurate] = solve_accurate_newton(V_occupied, V_total, C_approx);
+
+        newton_estimate(dataset_idx) = C_bestfit_pL * 1e6;
+        fprintf('Sample %d: === ANALYSIS RESULTS ===\n', dataset_idx);
+        fprintf('Sample %d: Best-fit concentration: %.6e molecules/pL\n', dataset_idx, C_bestfit_pL);
+        fprintf('Sample %d:          (%.4e copies/uL)\n', dataset_idx, C_bestfit_pL * 1e6);
+        fprintf('Sample %d: Convergence: Approx in %d iters, Accurate in %d iters.\n', dataset_idx, iter_approx, iter_accurate);
+
+        % Standard error estimation
+        sigma_pL = estimate_standard_error(diameters_um, C_bestfit_pL);
+        std_error(dataset_idx) = sigma_pL * 1e6;
+        fprintf('Sample %d: Estimated std error (from 1000 sims): %.6e molecules/pL\n', dataset_idx, sigma_pL);
+        fprintf('Sample %d:          (%.4e copies/uL)\n', dataset_idx, sigma_pL * 1e6);
+
+        % Store results
+        results(dataset_idx).C_bestfit_pL = C_bestfit_pL;
+        results(dataset_idx).C_bestfit_uL = C_bestfit_pL * 1e6;
+        results(dataset_idx).sigma_pL = sigma_pL;
+        results(dataset_idx).sigma_uL = sigma_pL * 1e6;
+        results(dataset_idx).iter_approx = iter_approx;
+        results(dataset_idx).iter_accurate = iter_accurate;
+    end
+
+    % Create results table
+    sample_ids = 1:num_datasets;
+    results_table = table(sample_ids', droplets, on_count, pos_percent, mean_diam, std_diam, ...
+        mean_vol, std_vol, total_vol, simple_poisson, newton_estimate, std_error, ...
+        'VariableNames', {'Sample_ID', 'Droplets', 'ON', 'Pos%', 'Mean_Diam_um', 'Std_Diam_um', ...
+                         'Mean_Vol_pL', 'Std_Vol_pL', 'Total_Vol_pL', 'Simple_Poisson_copies_uL', ...
+                         'Newton_Estimate_copies_uL', 'Std_Error_copies_uL'});
+    
+    % Display the results table
+    disp('Results Table:');
+    disp(results_table);
+
+    % Create figure for individual sample plots
+    figure('Position', [100, 100, 1200, 200 * num_datasets]); % Adjust height based on number of samples
+    
+    % Individual sample plots
+    for dataset_idx = 1:num_datasets
+        % Extract data for this sample
+        col_diameter = (dataset_idx-1)*2 + 1;
+        col_occupancy = (dataset_idx-1)*2 + 2;
+        diameters_um = data(:, col_diameter);
+        occupancy = data(:, col_occupancy);
+        valid_mask = ~isnan(diameters_um) & ~isnan(occupancy);
+        diameters_um = diameters_um(valid_mask);
+        occupancy = occupancy(valid_mask);
+        radius_um = diameters_um / 2;
+        volumes_pL = (4/3) * pi * radius_um.^3 / 1000;
+
+        % Subplot for concentration with error bar
+        subplot(num_datasets, 2, dataset_idx * 2 - 1); % Left column
+        C_bestfit_uL = results(dataset_idx).C_bestfit_uL;
+        sigma_uL = results(dataset_idx).sigma_uL;
+        bar(1, C_bestfit_uL, 'FaceColor', colors(dataset_idx, :));
+        hold on;
+        errorbar(1, C_bestfit_uL, sigma_uL, 'k.', 'LineWidth', 1.5, 'CapSize', 10);
+        hold off;
+        set(gca, 'XTick', 1, 'XTickLabel', {'Sample'});
+        ylabel('Concentration (copies/uL)');
+        title(sprintf('Sample %d: Concentration (%.2e ± %.2e)', dataset_idx, C_bestfit_uL, sigma_uL));
+        ylim([0, max(C_bestfit_uL + sigma_uL) * 1.2]); % Adjust y-limit for visibility
+        grid on;
+
+        % Subplot for Poisson fit
+        subplot(num_datasets, 2, dataset_idx * 2); % Right column
+        jitter = 0.1 * (rand(size(occupancy)) - 0.5);
+        scatter(volumes_pL, occupancy + jitter, 15, 'filled', 'MarkerFaceColor', colors(dataset_idx, :));
+        hold on;
+        V_range = linspace(min(volumes_pL), max(volumes_pL), 100);
+        P_occ = 1 - exp(-results(dataset_idx).C_bestfit_pL * V_range);
+        plot(V_range, P_occ, 'k-', 'LineWidth', 2);
+        hold off;
+        xlabel('Droplet Volume (pL)');
+        ylabel('Occupancy / P(Occupied)');
+        title(sprintf('Sample %d: Poisson Fit', dataset_idx));
+        ylim([-0.2, 1.2]);
+        grid on;
+    end
+
+    % Aggregated plots
+    figure('Position', [400, 100, 1200, 900]);
+    all_volumes = [];
+    all_occupancies = [];
+    for dataset_idx = 1:num_datasets
+        col_diameter = (dataset_idx-1)*2 + 1;
+        col_occupancy = (dataset_idx-1)*2 + 2;
+        diameters_um = data(:, col_diameter);
+        occupancy = data(:, col_occupancy);
+        valid_mask = ~isnan(diameters_um) & ~isnan(occupancy);
+        diameters_um = diameters_um(valid_mask);
+        occupancy = occupancy(valid_mask);
+        radius_um = diameters_um / 2;
+        volumes_pL = (4/3) * pi * radius_um.^3 / 1000;
+        all_volumes = [all_volumes; volumes_pL];
+        all_occupancies = [all_occupancies; occupancy];
+    end
+
+    % 1. Droplet Volume Distribution (all samples)
+    subplot(2,2,1);
+    histogram(all_volumes, 50, 'FaceColor', [0.2 0.6 0.8], 'EdgeColor', 'none');
+    xlabel('Droplet Volume (pL)');
+    ylabel('Count');
+    title('Droplet Volume Distribution (All Samples)');
+    grid on;
+
+    % 2. Occupancy vs Volume (all samples with jitter)
+    subplot(2,2,2);
+    jitter = 0.1 * (rand(size(all_occupancies)) - 0.5);
+    scatter(all_volumes, all_occupancies + jitter, 15, 'filled');
+    xlabel('Droplet Volume (pL)');
+    ylabel('Occupancy (0 or 1, jittered)');
+    title('Occupancy by Droplet Size (All Samples)');
+    ylim([-0.2 1.2]);
+    grid on;
+
+    % 3. Data and Best-Fit Poisson Model (average C across samples)
+    subplot(2,2,[3,4]);
+    avg_C_bestfit_pL = mean([results.C_bestfit_pL]);
+    V_range = linspace(min(all_volumes), max(all_volumes), 100);
+    P_occ = 1 - exp(-avg_C_bestfit_pL * V_range);
+    scatter(all_volumes, all_occupancies + jitter, 15, 'filled', 'DisplayName', 'Data (jittered)');
+    hold on;
+    plot(V_range, P_occ, 'r-', 'LineWidth', 2, 'DisplayName', 'P(Occupied) = 1 - exp(-C*V)');
+    xlabel('Droplet Volume (pL)');
+    ylabel('Occupancy / P(Occupied)');
+    title('Data and Average Best-Fit Poisson Model (All Samples)');
+    legend('Location', 'southeast');
+    grid on;
+    hold off;
+end
+
+function [C_new, iter] = solve_approx_newton(V_all, N_obs, C_init, tol, max_iter)
+    if nargin < 4
+        tol = 1e-5;
+    end
+    if nargin < 5
+        max_iter = 100;
+    end
+    C_old = C_init;
+    for iter = 1:max_iter
+        exp_term = exp(-C_old * V_all);
+        F_prime = N_obs - sum(1 - exp_term);  % S5
+        dF_prime = sum(V_all .* exp_term);  % S6
+        if abs(dF_prime) < 1e-15
+            dF_prime = 1e-15 * sign(dF_prime);
+            if dF_prime == 0
+                dF_prime = 1e-15;
+            end
+        end
+        C_new = C_old - F_prime / dF_prime;  % S3
+        if C_new < 0
+            C_new = abs(C_old) / 2;
+        end
+        rel_change = abs((C_new - C_old) / max(abs(C_old), 1e-15));
+        if rel_change < tol
+            return;
+        end
+        C_old = C_new;
+    end
+    warning('Approx solver max iterations reached.');
+end
+
+function [C_new, iter] = solve_accurate_newton(V_occupied, V_total, C_init, tol, max_iter)
+    if nargin < 4
+        tol = 1e-5;
+    end
+    if nargin < 5
+        max_iter = 100;
+    end
+    C_old = C_init;
+    for iter = 1:max_iter
+        exp_term = exp(-C_old * V_occupied);
+        denom = 1 - exp_term;
+        denom(denom < 1e-15) = 1e-15;
+        F = V_total - sum(V_occupied ./ denom);  % S1
+        num_dF = V_occupied.^2 .* exp_term;
+        denom_dF = denom.^2;
+        dF = sum(num_dF ./ denom_dF);  % S2
+        if abs(dF) < 1e-15
+            dF = 1e-15 * sign(dF);
+            if dF == 0
+                dF = 1e-15;
+            end
+        end
+        C_new = C_old - F / dF;  % S3
+        if C_new < 0
+            C_new = abs(C_old) / 2;
+        end
+        rel_change = abs((C_new - C_old) / max(abs(C_old), 1e-15));
+        if rel_change < tol
+            return;
+        end
+        C_old = C_new;
+    end
+    warning('Accurate solver max iterations reached.');
+end
+
+function sigma_pL = estimate_standard_error(diameters_um, C_bestfit_pL, N_sim)
+    if nargin < 3
+        N_sim = 1000;
+    end
+    measured_diams = diameters_um(:);
+    V_true_pL = (4/3 * pi * (measured_diams / 2).^3) / 1000;
+    C_sims = zeros(N_sim, 1);
+    for sim = 1:N_sim
+        % Simulate occupancy (Poisson: occupied if >=1)
+        lambda_ = C_bestfit_pL * V_true_pL;
+        occ_sim = poissrnd(lambda_) > 0;
+        % Add Gaussian diameter errors
+        sigma_d = max(1.0, 0.08 * measured_diams);  % um
+        err_d = randn(size(measured_diams)) .* sigma_d;
+        diams_sim = measured_diams + err_d;
+        % Simulated volumes
+        V_sim_pL = (4/3 * pi * (diams_sim / 2).^3) / 1000;
+        V_total_sim = sum(V_sim_pL);
+        V_all_sim = V_sim_pL;
+        V_occ_sim = V_sim_pL(occ_sim);
+        N_obs_sim = sum(occ_sim);
+        % Initial guess (S4)
+        num_drops = length(V_sim_pL);
+        f_pos_sim = N_obs_sim / num_drops;
+        V_avg_sim = mean(V_sim_pL);
+        if f_pos_sim >= 1
+            C_init_sim = 1e-6;
+        else
+            C_init_sim = -log(1 - f_pos_sim + 1e-15) / V_avg_sim;
+        end
+        % Fit
+        C_approx_sim = solve_approx_newton(V_all_sim, N_obs_sim, C_init_sim);
+        C_sim = solve_accurate_newton(V_occ_sim, V_total_sim, C_approx_sim);
+        C_sims(sim) = C_sim;
+    end
+    sigma_pL = std(C_sims);
+end
