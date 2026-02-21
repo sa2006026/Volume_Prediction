@@ -2404,6 +2404,106 @@
             });
         }
 
+        // Clear all panels and history when new images are uploaded
+        function clearAllPanels() {
+            console.log('🧹 Clearing all panels and history...');
+            
+            // Clear Match Panel
+            const diameterFileInput = document.getElementById('diameterFileInput');
+            const fluorescentFileInput = document.getElementById('fluorescentFileInput');
+            const referenceDyeFileInput = document.getElementById('referenceDyeFileInput');
+            if (diameterFileInput) diameterFileInput.value = '';
+            if (fluorescentFileInput) fluorescentFileInput.value = '';
+            if (referenceDyeFileInput) referenceDyeFileInput.value = '';
+            
+            const matchResults = document.getElementById('matchResults');
+            if (matchResults) {
+                matchResults.style.display = 'none';
+                const matchedRows = document.getElementById('matchedRows');
+                const onlyDiameterRows = document.getElementById('onlyDiameterRows');
+                const onlyFluorescentRows = document.getElementById('onlyFluorescentRows');
+                const matchedCount = document.getElementById('matchedCount');
+                const onlyDiameterCount = document.getElementById('onlyDiameterCount');
+                const onlyFluorescentCount = document.getElementById('onlyFluorescentCount');
+                if (matchedRows) matchedRows.innerHTML = '';
+                if (onlyDiameterRows) onlyDiameterRows.innerHTML = '';
+                if (onlyFluorescentRows) onlyFluorescentRows.innerHTML = '';
+                if (matchedCount) matchedCount.textContent = '';
+                if (onlyDiameterCount) onlyDiameterCount.textContent = '';
+                if (onlyFluorescentCount) onlyFluorescentCount.textContent = '';
+            }
+            
+            // Clear Droplet Calculation Panel
+            const matchedCsvFileInput = document.getElementById('matchedCsvFileInput');
+            if (matchedCsvFileInput) {
+                // Clear the file input value
+                matchedCsvFileInput.value = '';
+                // Also try to reset it by creating a new input (more thorough clearing)
+                try {
+                    matchedCsvFileInput.value = null;
+                } catch(e) {
+                    // Some browsers don't allow setting to null, that's okay
+                }
+            }
+            
+            const matchedCsvFileName = document.getElementById('matchedCsvFileName');
+            if (matchedCsvFileName) {
+                matchedCsvFileName.style.display = 'none';
+            }
+            
+            const matchedCsvFileNameText = document.getElementById('matchedCsvFileNameText');
+            if (matchedCsvFileNameText) {
+                matchedCsvFileNameText.textContent = '';
+                matchedCsvFileNameText.innerHTML = '';
+            }
+            
+            const dropletCalculationResultsDiv = document.getElementById('dropletCalculationResults');
+            if (dropletCalculationResultsDiv) {
+                dropletCalculationResultsDiv.style.display = 'none';
+                const dropletResultsTable = document.getElementById('dropletResultsTable');
+                if (dropletResultsTable) dropletResultsTable.innerHTML = '';
+            }
+            
+            // Clear droplet calculation variables
+            // These are in the same script scope, so we can access them directly
+            // We need to check if they exist in the current scope to avoid errors
+            if (typeof dropletCalculationResults !== 'undefined' && dropletCalculationResults !== null) {
+                dropletCalculationResults = null;
+            }
+            if (typeof matchedCsvOriginalFilename !== 'undefined' && matchedCsvOriginalFilename !== null) {
+                matchedCsvOriginalFilename = null;
+            }
+            
+            // Clear Filter Results Panels
+            const overlapResults = document.getElementById('overlapResults');
+            if (overlapResults) {
+                overlapResults.style.display = 'none';
+                const overlapResultsText = document.getElementById('overlapResultsText');
+                if (overlapResultsText) overlapResultsText.textContent = '';
+            }
+            
+            const filterResults = document.getElementById('filterResults');
+            if (filterResults) {
+                filterResults.style.display = 'none';
+                const filterResultsText = document.getElementById('filterResultsText');
+                if (filterResultsText) filterResultsText.textContent = '';
+            }
+            
+            const circularityFilterResults = document.getElementById('circularityFilterResults');
+            if (circularityFilterResults) {
+                circularityFilterResults.style.display = 'none';
+                const circularityFilterResultsText = document.getElementById('circularityFilterResultsText');
+                if (circularityFilterResultsText) circularityFilterResultsText.textContent = '';
+            }
+            
+            const darkEdgeFilterResults = document.getElementById('darkEdgeFilterResults');
+            if (darkEdgeFilterResults) {
+                darkEdgeFilterResults.style.display = 'none';
+                const darkEdgeFilterResultsText = document.getElementById('darkEdgeFilterResultsText');
+                if (darkEdgeFilterResultsText) darkEdgeFilterResultsText.textContent = '';
+            }
+        }
+
         function handleFileSelect(file) {
             const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/tiff', 'image/bmp', 'image/webp'];
             
@@ -2425,6 +2525,9 @@
                 clearCanvasAndRedrawImage();
                 renderImageTabs();
             }
+            
+            // Clear all panels
+            clearAllPanels();
 
             // Update upload area to show selected file
             const uploadIcon = document.getElementById('uploadArea').querySelector('.upload-icon');
@@ -2482,6 +2585,9 @@
                 clearCanvasAndRedrawImage();
                 renderImageTabs();
             }
+            
+            // Clear all panels
+            clearAllPanels();
             
             // Upload files sequentially
             let lastSuccess = false;
