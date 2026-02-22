@@ -359,8 +359,17 @@ class SAMAnalyzer:
         # Equivalent diameter (diameter of circle with same area)
         equiv_diameter = np.sqrt(4 * area / np.pi)
         
-        # Mean intensity within mask
+        # Mean intensity within mask (from grayscale)
         mean_intensity = np.mean(self.gray_image[mask > 0]) if np.any(mask > 0) else 0
+        
+        # Calculate red and green mean intensities from BGR image
+        red_mean_intensity = 0
+        green_mean_intensity = 0
+        if self.image is not None and np.any(mask > 0):
+            # OpenCV uses BGR format: channel 0=Blue, 1=Green, 2=Red
+            mask_pixels = mask > 0
+            red_mean_intensity = np.mean(self.image[:, :, 2][mask_pixels]) if np.any(mask_pixels) else 0
+            green_mean_intensity = np.mean(self.image[:, :, 1][mask_pixels]) if np.any(mask_pixels) else 0
         
         return {
             'mask_id': mask_id,
@@ -377,6 +386,8 @@ class SAMAnalyzer:
             'extent': float(extent),
             'equivalent_diameter': float(equiv_diameter),
             'mean_intensity': float(mean_intensity),
+            'red_mean_intensity': float(red_mean_intensity),
+            'green_mean_intensity': float(green_mean_intensity),
             'enclosing_circle': [float(circle_x), float(circle_y), float(radius)]
         }
     

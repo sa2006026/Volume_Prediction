@@ -1383,6 +1383,14 @@
                             <input type="checkbox" id="fluorescentNearRefDyeCheckbox" style="margin-right: 5px;">
                             Fluorescent Near Ref Dye
                         </label>
+                        <label style="display: none; margin-top: 8px; font-size: 0.85em; color: #333; cursor: pointer;" id="redChannelLabel">
+                            <input type="checkbox" id="redChannelCheckbox" style="margin-right: 5px;">
+                            Red Channel
+                        </label>
+                        <label style="display: none; margin-top: 8px; font-size: 0.85em; color: #333; cursor: pointer;" id="greenChannelLabel">
+                            <input type="checkbox" id="greenChannelCheckbox" style="margin-right: 5px;">
+                            Green Channel
+                        </label>
                     </div>
                     
                     <!-- Overlap Filter Panel -->
@@ -3560,6 +3568,16 @@
                 fluorescentNearRefDyeLabel.style.display = 'block';
             }
             
+            // Show red and green channel checkboxes when export buttons are visible
+            const redChannelLabel = document.getElementById('redChannelLabel');
+            if (redChannelLabel) {
+                redChannelLabel.style.display = 'block';
+            }
+            const greenChannelLabel = document.getElementById('greenChannelLabel');
+            if (greenChannelLabel) {
+                greenChannelLabel.style.display = 'block';
+            }
+            
             // Show intensity filter panel
             const intensityPanel = document.getElementById('intensityFilterPanel');
             if (intensityPanel) {
@@ -4527,12 +4545,18 @@
                 
                 // Check if fluorescent near ref dye checkbox is enabled
                 const fluorescentNearRefDye = document.getElementById('fluorescentNearRefDyeCheckbox')?.checked || false;
+                
+                // Check if red and green channel checkboxes are enabled (independent)
+                const redChannel = document.getElementById('redChannelCheckbox')?.checked || false;
+                const greenChannel = document.getElementById('greenChannelCheckbox')?.checked || false;
 
                 // Build request body
                 const requestBody = {
                     include_ring_width: includeRingWidth,
                     reference_dye: referenceDye,
-                    fluorescent_near_ref_dye: fluorescentNearRefDye
+                    fluorescent_near_ref_dye: fluorescentNearRefDye,
+                    red_channel: redChannel,
+                    green_channel: greenChannel
                 };
                 
                 // Add ring width parameters if enabled
@@ -4636,11 +4660,17 @@
                 // Check if fluorescent near ref dye checkbox is enabled
                 const fluorescentNearRefDye = document.getElementById('fluorescentNearRefDyeCheckbox')?.checked || false;
                 
+                // Check if red and green channel checkboxes are enabled (independent)
+                const redChannel = document.getElementById('redChannelCheckbox')?.checked || false;
+                const greenChannel = document.getElementById('greenChannelCheckbox')?.checked || false;
+                
                 // Build request body
                 const requestBody = {
                     include_ring_width: includeRingWidth,
                     reference_dye: referenceDye,
-                    fluorescent_near_ref_dye: fluorescentNearRefDye
+                    fluorescent_near_ref_dye: fluorescentNearRefDye,
+                    red_channel: redChannel,
+                    green_channel: greenChannel
                 };
                 if (includeRingWidth) {
                     requestBody.edge_width = edgeWidth;

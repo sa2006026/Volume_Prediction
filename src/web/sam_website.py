@@ -3285,8 +3285,10 @@ def export_mask_csv():
         include_ring_width = data.get('include_ring_width', False)
         edge_width = int(data.get('edge_width', 3))
         darkness_threshold = int(data.get('darkness_threshold', 60))
-        reference_dye = data.get('reference_dye', False)  # New parameter
-        fluorescent_near_ref_dye = data.get('fluorescent_near_ref_dye', False)  # New parameter
+        reference_dye = data.get('reference_dye', False)
+        fluorescent_near_ref_dye = data.get('fluorescent_near_ref_dye', False)
+        red_channel = data.get('red_channel', False)  # Independent checkbox
+        green_channel = data.get('green_channel', False)  # Independent checkbox
         
         # Create CSV content - only export active masks (not filtered out)
         csv_lines = []
@@ -3303,17 +3305,30 @@ def export_mask_csv():
         else:
             col_prefix = ""
         
-        # Create header with appropriate units and prefix
+        # Build header columns
+        header_cols = ["Mask_ID", f"{col_prefix}Center_X_px", f"{col_prefix}Center_Y_px", 
+                       f"{col_prefix}Diameter_{unit_name}", f"{col_prefix}Mean_Intensity", 
+                       f"{col_prefix}Circularity"]
+        
+        # Add red and green intensity columns if checkboxes are enabled
+        if red_channel:
+            header_cols.append(f"{col_prefix}Red_Mean_Intensity")
+        if green_channel:
+            header_cols.append(f"{col_prefix}Green_Mean_Intensity")
+        
+        # Add ring width columns if enabled
+        if include_ring_width:
+            header_cols.extend([f"{col_prefix}Ring_Width_{unit_name}", 
+                               f"{col_prefix}Dark_Edge_Diameter_{unit_name}", 
+                               f"{col_prefix}Prediction_Diameter_{unit_name}"])
+        
+        # Create header
         if use_units:
-            if include_ring_width:
-                csv_lines.append(f"Mask_ID,{col_prefix}Center_X_px,{col_prefix}Center_Y_px,{col_prefix}Diameter_{unit_name},{col_prefix}Mean_Intensity,{col_prefix}Circularity,{col_prefix}Ring_Width_{unit_name},{col_prefix}Dark_Edge_Diameter_{unit_name},{col_prefix}Prediction_Diameter_{unit_name}")
-            else:
-                csv_lines.append(f"Mask_ID,{col_prefix}Center_X_px,{col_prefix}Center_Y_px,{col_prefix}Diameter_{unit_name},{col_prefix}Mean_Intensity,{col_prefix}Circularity")
+            csv_lines.append(",".join(header_cols))
         else:
-            if include_ring_width:
-                csv_lines.append(f"Mask_ID,{col_prefix}Center_X,{col_prefix}Center_Y,{col_prefix}Diameter,{col_prefix}Mean_Intensity,{col_prefix}Circularity,{col_prefix}Ring_Width,{col_prefix}Dark_Edge_Diameter,{col_prefix}Prediction_Diameter")
-            else:
-                csv_lines.append(f"Mask_ID,{col_prefix}Center_X,{col_prefix}Center_Y,{col_prefix}Diameter,{col_prefix}Mean_Intensity,{col_prefix}Circularity")
+            # Remove _px and unit suffixes for non-unit mode
+            header_cols_no_units = [col.replace("_px", "").replace(f"_{unit_name}", "") for col in header_cols]
+            csv_lines.append(",".join(header_cols_no_units))
         
         active_mask_count = 0
         for i, stats in enumerate(engine.sam_analyzer.mask_statistics):
@@ -3329,6 +3344,8 @@ def export_mask_csv():
                 diameter = stats.get('diameter', 0)
                 mean_intensity = stats.get('mean_intensity', 0)
                 circularity = stats.get('circularity', 0)
+                red_mean_intensity = stats.get('red_mean_intensity', 0)
+                green_mean_intensity = stats.get('green_mean_intensity', 0)
                 
                 # Calculate ring width if requested (uses cache and applies unit conversion)
                 ring_width = 0
@@ -3354,11 +3371,22 @@ def export_mask_csv():
                     # Prediction diameter = 1.05 * diameter + 0.41 * ring_width
                     prediction_diameter = 1.05 * diameter + 0.41 * ring_width
                 
-                # Add row to CSV
+                # Build row data
+                row_data = [f"{mask_id}", f"{center_x:.2f}", f"{center_y:.2f}", 
+                           f"{diameter:.2f}", f"{mean_intensity:.2f}", f"{circularity:.3f}"]
+                
+                # Add red and green intensity if checkboxes are enabled
+                if red_channel:
+                    row_data.append(f"{red_mean_intensity:.2f}")
+                if green_channel:
+                    row_data.append(f"{green_mean_intensity:.2f}")
+                
+                # Add ring width data if enabled
                 if include_ring_width:
-                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{circularity:.3f},{ring_width:.2f},{dark_edge_diameter:.2f},{prediction_diameter:.2f}")
-                else:
-                    csv_lines.append(f"{mask_id},{center_x:.2f},{center_y:.2f},{diameter:.2f},{mean_intensity:.2f},{circularity:.3f}")
+                    row_data.extend([f"{ring_width:.2f}", f"{dark_edge_diameter:.2f}", f"{prediction_diameter:.2f}"])
+                
+                # Add row to CSV
+                csv_lines.append(",".join(row_data))
                 active_mask_count += 1
         
         # Check if there are any active masks to export
@@ -3371,7 +3399,14 @@ def export_mask_csv():
         # Generate filename based on image name and export type
         if engine.image_filename:
             # Use image filename + export type
-            if fluorescent_near_ref_dye:
+            # Priority: green_channel > red_channel > fluorescent_near_ref_dye > reference_dye > include_ring_width
+            if green_channel:
+                # Format: filename_green.csv
+                filename = f'{engine.image_filename}_green.csv'
+            elif red_channel:
+                # Format: filename_red.csv
+                filename = f'{engine.image_filename}_red.csv'
+            elif fluorescent_near_ref_dye:
                 # Format: filename_fluorescent.csv
                 filename = f'{engine.image_filename}_fluorescent.csv'
             elif reference_dye:
@@ -3385,7 +3420,11 @@ def export_mask_csv():
             # Fallback to timestamp-based filename if no image name available
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             unit_suffix = f"_{unit_name}" if use_units else "_pixels"
-            if fluorescent_near_ref_dye:
+            if green_channel:
+                filename = f'green{unit_suffix}_{timestamp}.csv'
+            elif red_channel:
+                filename = f'red{unit_suffix}_{timestamp}.csv'
+            elif fluorescent_near_ref_dye:
                 filename = f'fluorescent{unit_suffix}_{timestamp}.csv'
             elif reference_dye:
                 filename = f'reference_dye{unit_suffix}_{timestamp}.csv'
