@@ -1147,6 +1147,66 @@
                     </div>
                 </div>
 
+                <!-- Fluorescent vs ROX Panel -->
+                <div class="control-group" id="fluorescentVsRoxPanel" style="margin-top: 20px;">
+                    <h3><i class="fas fa-exchange-alt"></i> Fluorescent vs ROX</h3>
+                    <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                        Upload Green and Red CSV files to match masks based on x,y coordinates (within ±5 pixels) and calculate the ratio of Green Intensity / Red Intensity.
+                    </p>
+                    
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <!-- Green File Row -->
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
+                                <i class="fas fa-file-csv"></i> Green CSV File:
+                            </label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="file" id="greenCsvFileInput" accept=".csv" style="flex: 1; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 0.9em;">
+                                <button class="btn" onclick="document.getElementById('greenCsvFileInput').click()" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; font-size: 0.85em; padding: 8px 16px;">
+                                    <i class="fas fa-folder-open"></i> Browse
+                                </button>
+                            </div>
+                            <div id="greenCsvFileName" style="margin-top: 5px; font-size: 0.85em; color: #28a745; display: none;">
+                                <i class="fas fa-check-circle"></i> <span id="greenCsvFileNameText"></span>
+                            </div>
+                        </div>
+                        
+                        <!-- Red File Row -->
+                        <div>
+                            <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
+                                <i class="fas fa-file-csv"></i> Red CSV File:
+                            </label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="file" id="redCsvFileInput" accept=".csv" style="flex: 1; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 0.9em;">
+                                <button class="btn" onclick="document.getElementById('redCsvFileInput').click()" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%); color: white; font-size: 0.85em; padding: 8px 16px;">
+                                    <i class="fas fa-folder-open"></i> Browse
+                                </button>
+                            </div>
+                            <div id="redCsvFileName" style="margin-top: 5px; font-size: 0.85em; color: #28a745; display: none;">
+                                <i class="fas fa-check-circle"></i> <span id="redCsvFileNameText"></span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Match Button -->
+                    <div style="text-align: center; margin-bottom: 15px;">
+                        <button class="btn" onclick="matchGreenVsRed()" id="matchGreenRedBtn" 
+                                style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; font-size: 1em; padding: 12px 30px;">
+                            <i class="fas fa-search"></i> Match & Calculate Ratio
+                        </button>
+                    </div>
+                    
+                    <!-- Match Results -->
+                    <div id="greenRedMatchResults" style="display: none; margin-top: 20px;">
+                        <h4 style="color: #495057; margin-bottom: 15px; border-bottom: 2px solid #667eea; padding-bottom: 8px;">
+                            <i class="fas fa-chart-bar"></i> Match Results
+                        </h4>
+                        <div id="greenRedMatchSummary" style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
+                            <!-- Summary will be displayed here -->
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Non-uniform Droplet Calculation Panel -->
                 <div class="control-group" id="dropletCalculationPanel" style="margin-top: 20px;">
                     <h3><i class="fas fa-calculator"></i> Non-uniform Droplet Calculation</h3>
@@ -1938,6 +1998,30 @@
                     }
                 });
             }
+            
+            // Handle Green CSV file selection
+            const greenCsvInput = document.getElementById('greenCsvFileInput');
+            if (greenCsvInput) {
+                greenCsvInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        document.getElementById('greenCsvFileNameText').textContent = file.name;
+                        document.getElementById('greenCsvFileName').style.display = 'block';
+                    }
+                });
+            }
+            
+            // Handle Red CSV file selection
+            const redCsvInput = document.getElementById('redCsvFileInput');
+            if (redCsvInput) {
+                redCsvInput.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        document.getElementById('redCsvFileNameText').textContent = file.name;
+                        document.getElementById('redCsvFileName').style.display = 'block';
+                    }
+                });
+            }
         }
         
         // Match files function
@@ -1996,6 +2080,91 @@
                     matchBtn.disabled = false;
                 }
             }
+        }
+        
+        // Match Green vs Red CSV files
+        async function matchGreenVsRed() {
+            const greenFile = document.getElementById('greenCsvFileInput').files[0];
+            const redFile = document.getElementById('redCsvFileInput').files[0];
+            
+            if (!greenFile || !redFile) {
+                showError('Please select both Green and Red CSV files.');
+                return;
+            }
+            
+            try {
+                // Show loading state
+                const matchBtn = document.getElementById('matchGreenRedBtn');
+                const originalText = matchBtn.innerHTML;
+                matchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Matching...';
+                matchBtn.disabled = true;
+                
+                // Read files and send to backend
+                const formData = new FormData();
+                formData.append('green_file', greenFile);
+                formData.append('red_file', redFile);
+                
+                const response = await fetch('/match_green_red_csv', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Download CSV file
+                    downloadGreenRedResultsCSV(result);
+                    
+                    // Display summary
+                    const resultsDiv = document.getElementById('greenRedMatchResults');
+                    const summaryDiv = document.getElementById('greenRedMatchSummary');
+                    if (resultsDiv && summaryDiv) {
+                        resultsDiv.style.display = 'block';
+                        summaryDiv.innerHTML = `
+                            <p><strong>✅ Matching completed!</strong></p>
+                            <p>Matched masks: <strong>${result.matched_count}</strong></p>
+                            <p>Only in Green file: <strong>${result.only_green_count || 0}</strong></p>
+                            <p>Only in Red file: <strong>${result.only_red_count || 0}</strong></p>
+                            <p style="margin-top: 10px; color: #28a745;"><i class="fas fa-download"></i> CSV file downloaded: <strong>${result.filename}</strong></p>
+                        `;
+                    }
+                    
+                    showSuccess(`Matching completed! Found ${result.matched_count} matches. CSV file downloaded.`);
+                } else {
+                    showError(result.error || 'Matching failed');
+                }
+                
+            } catch (error) {
+                console.error('Error matching files:', error);
+                showError('Network error: ' + error.message);
+            } finally {
+                // Restore button state
+                const matchBtn = document.getElementById('matchGreenRedBtn');
+                if (matchBtn) {
+                    matchBtn.innerHTML = '<i class="fas fa-search"></i> Match & Calculate Ratio';
+                    matchBtn.disabled = false;
+                }
+            }
+        }
+        
+        // Download green vs red match results as CSV
+        function downloadGreenRedResultsCSV(result) {
+            // Create CSV blob
+            const csvContent = result.csv_content;
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            
+            // Create download link
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', result.filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up
+            URL.revokeObjectURL(url);
         }
         
         // Download match results as CSV

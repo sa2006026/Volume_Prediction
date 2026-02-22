@@ -4163,6 +4163,247 @@ def match_csv_files():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/match_green_red_csv', methods=['POST'])
+def match_green_red_csv():
+    """Match rows from Green and Red CSV files based on x,y coordinates (within ±5 pixels) and calculate Green/Red intensity ratio"""
+    try:
+        # Check if required files were uploaded
+        if 'green_file' not in request.files or 'red_file' not in request.files:
+            return jsonify({'success': False, 'error': 'Both Green and Red CSV files are required'})
+        
+        green_file = request.files['green_file']
+        red_file = request.files['red_file']
+        
+        if green_file.filename == '' or red_file.filename == '':
+            return jsonify({'success': False, 'error': 'Please select both CSV files'})
+        
+        # Read CSV files
+        import csv
+        import io
+        
+        # Parse green file
+        green_content = green_file.read().decode('utf-8')
+        green_reader = csv.DictReader(io.StringIO(green_content))
+        green_rows = list(green_reader)
+        
+        # Parse red file
+        red_content = red_file.read().decode('utf-8')
+        red_reader = csv.DictReader(io.StringIO(red_content))
+        red_rows = list(red_reader)
+        
+        # Find x, y column names (case-insensitive)
+        def find_xy_columns(row):
+            """Find x and y column names in a row"""
+            x_col = None
+            y_col = None
+            # Try exact matches first (Center_X_px, Center_Y_px)
+            for col in row.keys():
+                col_lower = col.lower()
+                if 'center_x' in col_lower:
+                    x_col = col
+                if 'center_y' in col_lower:
+                    y_col = col
+            # Fallback to other patterns
+            if not x_col or not y_col:
+                for col in row.keys():
+                    col_lower = col.lower()
+                    if not x_col and 'x' in col_lower and ('center' in col_lower or 'coord' in col_lower or col_lower == 'x'):
+                        x_col = col
+                    if not y_col and 'y' in col_lower and ('center' in col_lower or 'coord' in col_lower or col_lower == 'y'):
+                        y_col = col
+            return x_col, y_col
+        
+        # Find intensity column names
+        def find_intensity_column(row, color_name):
+            """Find intensity column for green or red"""
+            intensity_col = None
+            for col in row.keys():
+                col_lower = col.lower()
+                # Look for Green_Mean_Intensity or Red_Mean_Intensity
+                if color_name.lower() in col_lower and ('intensity' in col_lower or 'mean' in col_lower):
+                    intensity_col = col
+                    break
+                # Fallback: look for any intensity column if color-specific not found
+                if not intensity_col and 'intensity' in col_lower and 'mean' in col_lower:
+                    intensity_col = col
+            return intensity_col
+        
+        # Get column names for both files
+        if not green_rows or not red_rows:
+            return jsonify({'success': False, 'error': 'One or both CSV files are empty'})
+        
+        green_x_col, green_y_col = find_xy_columns(green_rows[0])
+        red_x_col, red_y_col = find_xy_columns(red_rows[0])
+        green_intensity_col = find_intensity_column(green_rows[0], 'green')
+        red_intensity_col = find_intensity_column(red_rows[0], 'red')
+        
+        if not green_x_col or not green_y_col:
+            return jsonify({'success': False, 'error': 'Could not find x,y coordinates in Green file. Expected columns like Center_X, Center_Y, or X, Y'})
+        
+        if not red_x_col or not red_y_col:
+            return jsonify({'success': False, 'error': 'Could not find x,y coordinates in Red file. Expected columns like Center_X, Center_Y, or X, Y'})
+        
+        if not green_intensity_col:
+            return jsonify({'success': False, 'error': 'Could not find Green intensity column in Green file. Expected column like Green_Mean_Intensity'})
+        
+        if not red_intensity_col:
+            return jsonify({'success': False, 'error': 'Could not find Red intensity column in Red file. Expected column like Red_Mean_Intensity'})
+        
+        # Tolerance for matching (±5 pixels)
+        tolerance = 5.0
+        
+        # Convert coordinates to float
+        def parse_coord(value):
+            """Parse coordinate value, handling various formats"""
+            try:
+                return float(str(value).strip())
+            except (ValueError, AttributeError):
+                return None
+        
+        def parse_float(value):
+            """Parse float value"""
+            try:
+                return float(str(value).strip())
+            except (ValueError, AttributeError):
+                return None
+        
+        # Create lookup for red file: (x, y) -> row
+        red_lookup = {}
+        for row in red_rows:
+            x = parse_coord(row.get(red_x_col))
+            y = parse_coord(row.get(red_y_col))
+            if x is not None and y is not None:
+                # Round to tolerance grid for faster lookup
+                x_key = round(x / tolerance) * tolerance
+                y_key = round(y / tolerance) * tolerance
+                key = (x_key, y_key)
+                if key not in red_lookup:
+                    red_lookup[key] = []
+                red_lookup[key].append((x, y, row))
+        
+        # Match rows
+        matched_rows = []
+        only_green_rows = []
+        only_red_indices = set(range(len(red_rows)))
+        
+        for green_row in green_rows:
+            x = parse_coord(green_row.get(green_x_col))
+            y = parse_coord(green_row.get(green_y_col))
+            
+            if x is None or y is None:
+                # Skip rows with invalid coordinates
+                only_green_rows.append(green_row)
+                continue
+            
+            x_key = round(x / tolerance) * tolerance
+            y_key = round(y / tolerance) * tolerance
+            
+            # Try to match with red file
+            matched_red = False
+            red_row_matched = None
+            red_x, red_y = None, None
+            
+            for dx in [-tolerance, 0, tolerance]:
+                for dy in [-tolerance, 0, tolerance]:
+                    search_key = (x_key + dx, y_key + dy)
+                    if search_key in red_lookup:
+                        for red_x_candidate, red_y_candidate, red_row in red_lookup[search_key]:
+                            # Check actual distance
+                            distance = ((x - red_x_candidate) ** 2 + (y - red_y_candidate) ** 2) ** 0.5
+                            if distance <= tolerance:
+                                matched_red = True
+                                red_row_matched = red_row
+                                red_x, red_y = red_x_candidate, red_y_candidate
+                                # Remove from only_red_indices
+                                for idx, r_row in enumerate(red_rows):
+                                    if r_row == red_row:
+                                        only_red_indices.discard(idx)
+                                        break
+                                break
+                        if matched_red:
+                            break
+                    if matched_red:
+                        break
+                if matched_red:
+                    break
+            
+            if matched_red:
+                # Match found! Calculate ratio
+                combined_row = {}
+                
+                # Add coordinates
+                combined_row['Center_X_px'] = f"{x:.2f}"
+                combined_row['Center_Y_px'] = f"{y:.2f}"
+                
+                # Get green intensity
+                green_intensity = parse_float(green_row.get(green_intensity_col, 0))
+                combined_row['Green_Mean_Intensity'] = f"{green_intensity:.2f}" if green_intensity is not None else "0.00"
+                
+                # Get red intensity
+                red_intensity = parse_float(red_row_matched.get(red_intensity_col, 0))
+                combined_row['Red_Mean_Intensity'] = f"{red_intensity:.2f}" if red_intensity is not None else "0.00"
+                
+                # Calculate ratio (Green / Red)
+                if red_intensity is not None and red_intensity != 0:
+                    ratio = green_intensity / red_intensity if green_intensity is not None else 0.0
+                    combined_row['Ratio_Green_Red_Intensity'] = f"{ratio:.4f}"
+                else:
+                    combined_row['Ratio_Green_Red_Intensity'] = "N/A"
+                
+                # Add other columns from green file if available
+                for col, val in green_row.items():
+                    if col not in [green_x_col, green_y_col, green_intensity_col]:
+                        if col not in combined_row:
+                            combined_row[col] = val
+                
+                matched_rows.append(combined_row)
+            else:
+                # Only in green file
+                only_green_rows.append(green_row)
+        
+        # Build CSV content
+        csv_lines = []
+        
+        # Create header
+        if matched_rows:
+            header = list(matched_rows[0].keys())
+            csv_lines.append(",".join(header))
+            
+            # Add matched rows
+            for row in matched_rows:
+                csv_lines.append(",".join([str(row.get(col, '')) for col in header]))
+        else:
+            # No matches, create minimal header
+            csv_lines.append("Center_X_px,Center_Y_px,Green_Mean_Intensity,Red_Mean_Intensity,Ratio_Green_Red_Intensity")
+        
+        csv_content = "\n".join(csv_lines)
+        
+        # Generate filename
+        # Extract base filename from green file
+        green_filename = green_file.filename
+        if green_filename:
+            # Remove extension and add _ratio.csv
+            base_name = green_filename.rsplit('.', 1)[0] if '.' in green_filename else green_filename
+            filename = f'{base_name}_ratio.csv'
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f'green_red_ratio_{timestamp}.csv'
+        
+        return jsonify({
+            'success': True,
+            'csv_content': csv_content,
+            'filename': filename,
+            'matched_count': len(matched_rows),
+            'only_green_count': len(only_green_rows),
+            'only_red_count': len(only_red_indices)
+        })
+    
+    except Exception as e:
+        print(f"❌ Error in Green vs Red CSV matching: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/calculate_droplet_concentration', methods=['POST'])
 def calculate_droplet_concentration():
     """Calculate molecule concentration from matched CSV using Poisson statistics"""
