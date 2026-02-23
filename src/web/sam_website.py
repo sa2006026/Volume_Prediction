@@ -4404,6 +4404,207 @@ def match_green_red_csv():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/process_overlay', methods=['POST'])
+def process_overlay():
+    """Process overlay CSV: create masks from coordinates, display on image, and export CSV with intensity"""
+    try:
+        import csv
+        import io
+        import cv2
+        import numpy as np
+        
+        if 'csv_file' not in request.files:
+            return jsonify({'success': False, 'error': 'No CSV file provided'})
+        
+        csv_file = request.files['csv_file']
+        if csv_file.filename == '':
+            return jsonify({'success': False, 'error': 'Please select a CSV file'})
+        
+        if engine.current_image is None:
+            return jsonify({'success': False, 'error': 'No image loaded. Please upload an image first.'})
+        
+        # Get checkbox states for filename
+        fluorescent = request.form.get('fluorescent') == 'true'
+        rox = request.form.get('rox') == 'true'
+        
+        # Read CSV file
+        csv_content = csv_file.read().decode('utf-8')
+        csv_reader = csv.DictReader(io.StringIO(csv_content))
+        csv_rows = list(csv_reader)
+        
+        if not csv_rows:
+            return jsonify({'success': False, 'error': 'CSV file is empty'})
+        
+        # Find x, y, diameter columns
+        def find_columns(row):
+            x_col = None
+            y_col = None
+            diameter_col = None
+            
+            for col in row.keys():
+                col_lower = col.lower()
+                if 'center_x' in col_lower or (col_lower == 'x' and x_col is None):
+                    x_col = col
+                if 'center_y' in col_lower or (col_lower == 'y' and y_col is None):
+                    y_col = col
+                if 'diameter' in col_lower and 'prediction' not in col_lower and 'dark_edge' not in col_lower:
+                    diameter_col = col
+            
+            return x_col, y_col, diameter_col
+        
+        x_col, y_col, diameter_col = find_columns(csv_rows[0])
+        
+        if not x_col or not y_col or not diameter_col:
+            return jsonify({
+                'success': False, 
+                'error': f'Could not find required columns in CSV. Expected: Center_X (or X), Center_Y (or Y), Diameter'
+            })
+        
+        # Load image
+        image = engine.current_image.copy()
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        image_height, image_width = image.shape[:2]
+        
+        # Create masks from CSV coordinates
+        masks = []
+        mask_statistics = []
+        results = []
+        
+        for row_idx, row in enumerate(csv_rows):
+            try:
+                # Parse coordinates and diameter
+                x = float(str(row.get(x_col, '0')).strip())
+                y = float(str(row.get(y_col, '0')).strip())
+                diameter = float(str(row.get(diameter_col, '0')).strip())
+                
+                if diameter <= 0:
+                    continue
+                
+                radius = diameter / 2.0
+                
+                # Create circular mask
+                mask = np.zeros((image_height, image_width), dtype=np.uint8)
+                center = (int(round(x)), int(round(y)))
+                cv2.circle(mask, center, int(round(radius)), 255, -1)
+                
+                # Calculate mean intensity within mask
+                mask_pixels = mask > 0
+                if np.any(mask_pixels):
+                    mean_intensity = np.mean(gray_image[mask_pixels])
+                    
+                    # Calculate mask statistics
+                    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    area = np.sum(mask > 0)
+                    perimeter = cv2.arcLength(contours[0], True) if contours else 0
+                    circularity = 4 * np.pi * area / (perimeter * perimeter) if perimeter > 0 else 0
+                    
+                    # Calculate bounding box [x, y, w, h] from center and radius
+                    x_bbox = max(0, int(round(x - radius)))
+                    y_bbox = max(0, int(round(y - radius)))
+                    w_bbox = int(round(diameter))
+                    h_bbox = int(round(diameter))
+                    # Ensure bounding box doesn't exceed image dimensions
+                    w_bbox = min(w_bbox, image_width - x_bbox)
+                    h_bbox = min(h_bbox, image_height - y_bbox)
+                    
+                    # Store mask
+                    masks.append(mask)
+                    mask_statistics.append({
+                        'mask_id': row_idx,
+                        'center_x': float(x),
+                        'center_y': float(y),
+                        'diameter': float(diameter),
+                        'mean_intensity': float(mean_intensity),
+                        'circularity': float(circularity),
+                        'area': float(area),
+                        'bounding_box': [x_bbox, y_bbox, w_bbox, h_bbox],
+                        'state': 'active'
+                    })
+                    
+                    # Build result row for CSV export - only include essential columns
+                    result_row = {
+                        'Mask_ID': row_idx + 1,
+                        'Center_X_px': f"{x:.2f}",
+                        'Center_Y_px': f"{y:.2f}",
+                        'Diameter_px': f"{diameter:.2f}",
+                        'Mean_Intensity': f"{mean_intensity:.2f}"
+                    }
+                    
+                    # Do not add other columns from original CSV (exclude red/green intensity, circularity, etc.)
+                    
+                    results.append(result_row)
+            except (ValueError, TypeError) as e:
+                print(f"⚠️ Error processing row {row_idx}: {e}")
+                continue
+        
+        if not masks:
+            return jsonify({'success': False, 'error': 'No valid masks were created from CSV'})
+        
+        # Store masks in SAM analyzer for display
+        engine.sam_analyzer.masks = masks
+        engine.sam_analyzer.mask_statistics = mask_statistics
+        engine.sam_analyzer.mask_states = ['active'] * len(masks)
+        
+        # Create overlay image with masks displayed
+        overlay_image = engine.create_clean_filtered_overlay()
+        overlay_base64 = engine.get_image_as_base64(overlay_image)
+        
+        # Build CSV content for export
+        csv_lines = []
+        
+        if results:
+            # Create header
+            header = list(results[0].keys())
+            csv_lines.append(",".join(header))
+            
+            # Add rows
+            for row in results:
+                csv_lines.append(",".join([str(row.get(col, '')) for col in header]))
+        
+        csv_content = "\n".join(csv_lines)
+        
+        # Generate filename based on checkbox states
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        # Extract base filename from uploaded CSV file
+        csv_filename = csv_file.filename
+        if csv_filename:
+            # Remove extension
+            base_name = csv_filename.rsplit('.', 1)[0] if '.' in csv_filename else csv_filename
+            
+            # Generate filename based on checkbox
+            if fluorescent:
+                filename = f'{base_name}_fluorescent_overlay.csv'
+            elif rox:
+                filename = f'{base_name}_ROX_overlay.csv'
+            else:
+                filename = f'{base_name}_overlay.csv'
+        else:
+            # Fallback if no filename
+            if fluorescent:
+                filename = f'fluorescent_overlay_{timestamp}.csv'
+            elif rox:
+                filename = f'ROX_overlay_{timestamp}.csv'
+            else:
+                filename = f'overlay_results_{timestamp}.csv'
+        
+        return jsonify({
+            'success': True,
+            'csv_content': csv_content,
+            'filename': filename,
+            'total_masks': len(masks),
+            'overlay_image': overlay_base64,
+            'masks': mask_statistics,
+            'masks_count': len(masks),
+            'message': f'Overlay processing completed! Created {len(masks)} masks from CSV coordinates.'
+        })
+    
+    except Exception as e:
+        print(f"❌ Error in overlay processing: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/calculate_droplet_concentration', methods=['POST'])
 def calculate_droplet_concentration():
     """Calculate molecule concentration from matched CSV using Poisson statistics"""

@@ -1211,7 +1211,7 @@
                 <div class="control-group" id="overlayPanel" style="margin-top: 20px;">
                     <h3><i class="fas fa-layer-group"></i> Overlay</h3>
                     <p style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
-                        Upload a CSV file to overlay mask locations on the current image.
+                        Upload a CSV file with x, y coordinates and diameter. Process to create masks and collect intensity information.
                     </p>
                     
                     <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
@@ -1226,6 +1226,36 @@
                         </div>
                         <div id="overlayCsvFileName" style="margin-top: 5px; font-size: 0.85em; color: #28a745; display: none;">
                             <i class="fas fa-check-circle"></i> <span id="overlayCsvFileNameText"></span>
+                        </div>
+                        
+                        <!-- Checkboxes for filename -->
+                        <div style="margin-top: 15px; display: flex; gap: 20px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="overlayFluorescentCheckbox" style="transform: scale(1.2);">
+                                <span style="font-size: 0.9em; color: #495057;">Fluorescent</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="overlayRoxCheckbox" style="transform: scale(1.2);">
+                                <span style="font-size: 0.9em; color: #495057;">ROX</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <!-- Process Button -->
+                    <div style="text-align: center; margin-bottom: 15px;">
+                        <button class="btn" onclick="processOverlay()" id="processOverlayBtn" 
+                                style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; font-size: 1em; padding: 12px 30px;">
+                            <i class="fas fa-play"></i> Process
+                        </button>
+                    </div>
+                    
+                    <!-- Results -->
+                    <div id="overlayResults" style="display: none; margin-top: 20px;">
+                        <h4 style="color: #495057; margin-bottom: 15px; border-bottom: 2px solid #667eea; padding-bottom: 8px;">
+                            <i class="fas fa-chart-bar"></i> Results
+                        </h4>
+                        <div id="overlayResultsSummary" style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                            <!-- Results will be displayed here -->
                         </div>
                     </div>
                 </div>
@@ -2201,6 +2231,112 @@
             document.body.removeChild(link);
             
             // Clean up
+            URL.revokeObjectURL(url);
+        }
+        
+        // Process overlay CSV
+        async function processOverlay() {
+            const csvFile = document.getElementById('overlayCsvFileInput').files[0];
+            
+            if (!csvFile) {
+                showError('Please select a CSV file first.');
+                return;
+            }
+            
+            // Check if image is loaded
+            const canvas = document.getElementById('imageCanvas');
+            if (!canvas || !canvas.width || !canvas.height) {
+                showError('Please upload an image first.');
+                return;
+            }
+            
+            // Get checkbox states
+            const fluorescent = document.getElementById('overlayFluorescentCheckbox')?.checked || false;
+            const rox = document.getElementById('overlayRoxCheckbox')?.checked || false;
+            
+            try {
+                // Show loading state
+                const processBtn = document.getElementById('processOverlayBtn');
+                const originalText = processBtn.innerHTML;
+                processBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                processBtn.disabled = true;
+                
+                // Read file and send to backend
+                const formData = new FormData();
+                formData.append('csv_file', csvFile);
+                formData.append('fluorescent', fluorescent ? 'true' : 'false');
+                formData.append('rox', rox ? 'true' : 'false');
+                
+                const response = await fetch('/process_overlay', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Display masks on image
+                    if (result.overlay_image) {
+                        await displayImage(result.overlay_image);
+                        
+                        // Populate frontend mask array
+                        if (result.masks) {
+                            masks = result.masks.map(maskData => new Mask(maskData));
+                            drawMasks();
+                            
+                            // Enable mask interaction
+                            maskInteractionEnabled = true;
+                            canvas.style.cursor = 'pointer';
+                        }
+                    }
+                    
+                    // Download CSV file
+                    downloadOverlayResultsCSV(result);
+                    
+                    // Display summary
+                    const resultsDiv = document.getElementById('overlayResults');
+                    const summaryDiv = document.getElementById('overlayResultsSummary');
+                    if (resultsDiv && summaryDiv) {
+                        resultsDiv.style.display = 'block';
+                        summaryDiv.innerHTML = `
+                            <p><strong>✅ Processing completed!</strong></p>
+                            <p>Total masks processed: <strong>${result.total_masks || 0}</strong></p>
+                            <p style="margin-top: 10px; color: #28a745;"><i class="fas fa-download"></i> CSV file downloaded: <strong>${result.filename}</strong></p>
+                        `;
+                    }
+                    
+                    showSuccess(result.message || `Processing completed! Processed ${result.total_masks || 0} masks.`);
+                } else {
+                    showError(result.error || 'Processing failed');
+                }
+                
+            } catch (error) {
+                console.error('Error processing overlay:', error);
+                showError('Network error: ' + error.message);
+            } finally {
+                // Restore button state
+                const processBtn = document.getElementById('processOverlayBtn');
+                if (processBtn) {
+                    processBtn.innerHTML = '<i class="fas fa-play"></i> Process';
+                    processBtn.disabled = false;
+                }
+            }
+        }
+        
+        // Download overlay results as CSV
+        function downloadOverlayResultsCSV(result) {
+            const csvContent = result.csv_content;
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', result.filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
             URL.revokeObjectURL(url);
         }
         
