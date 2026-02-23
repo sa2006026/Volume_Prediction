@@ -4440,6 +4440,7 @@ def process_overlay():
             x_col = None
             y_col = None
             diameter_col = None
+            mask_id_col = None
             
             for col in row.keys():
                 col_lower = col.lower()
@@ -4449,10 +4450,12 @@ def process_overlay():
                     y_col = col
                 if 'diameter' in col_lower and 'prediction' not in col_lower and 'dark_edge' not in col_lower:
                     diameter_col = col
+                if 'mask_id' in col_lower:
+                    mask_id_col = col
             
-            return x_col, y_col, diameter_col
+            return x_col, y_col, diameter_col, mask_id_col
         
-        x_col, y_col, diameter_col = find_columns(csv_rows[0])
+        x_col, y_col, diameter_col, mask_id_col = find_columns(csv_rows[0])
         
         if not x_col or not y_col or not diameter_col:
             return jsonify({
@@ -4472,25 +4475,53 @@ def process_overlay():
         
         for row_idx, row in enumerate(csv_rows):
             try:
+                # Get original Mask_ID if it exists, otherwise use row_idx
+                if mask_id_col and mask_id_col in row:
+                    try:
+                        original_mask_id = int(float(str(row.get(mask_id_col, row_idx)).strip()))
+                    except (ValueError, TypeError):
+                        original_mask_id = row_idx
+                else:
+                    original_mask_id = row_idx
+                
                 # Parse coordinates and diameter
                 x = float(str(row.get(x_col, '0')).strip())
                 y = float(str(row.get(y_col, '0')).strip())
                 diameter = float(str(row.get(diameter_col, '0')).strip())
                 
+                # Include ALL rows, even if diameter is invalid
+                # For invalid diameter, set default values
                 if diameter <= 0:
-                    continue
-                
-                radius = diameter / 2.0
-                
-                # Create circular mask
-                mask = np.zeros((image_height, image_width), dtype=np.uint8)
-                center = (int(round(x)), int(round(y)))
-                cv2.circle(mask, center, int(round(radius)), 255, -1)
-                
-                # Calculate mean intensity within mask
-                mask_pixels = mask > 0
-                if np.any(mask_pixels):
-                    mean_intensity = np.mean(gray_image[mask_pixels])
+                    print(f"⚠️ Row {row_idx}: invalid diameter ({diameter}), using default values")
+                    mean_intensity = 0.0
+                    area = 0.0
+                    circularity = 0.0
+                    x_bbox = max(0, int(round(x)))
+                    y_bbox = max(0, int(round(y)))
+                    w_bbox = 0
+                    h_bbox = 0
+                    mask = np.zeros((image_height, image_width), dtype=np.uint8)
+                else:
+                    radius = diameter / 2.0
+                    
+                    # Create circular mask
+                    mask = np.zeros((image_height, image_width), dtype=np.uint8)
+                    center = (int(round(x)), int(round(y)))
+                    
+                    # Create mask even if partially outside image bounds
+                    cv2.circle(mask, center, int(round(radius)), 255, -1)
+                    
+                    # Calculate mean intensity within mask
+                    mask_pixels = mask > 0
+                    
+                    # Always include the row if diameter is valid, even if mask is partially outside image
+                    # Calculate mean intensity - use 0 if no valid pixels
+                    if np.any(mask_pixels):
+                        mean_intensity = np.mean(gray_image[mask_pixels])
+                    else:
+                        # Mask is completely outside image bounds, but still include the row with 0 intensity
+                        mean_intensity = 0.0
+                        print(f"⚠️ Row {row_idx}: mask completely outside image bounds, using intensity=0")
                     
                     # Calculate mask statistics
                     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -4506,33 +4537,33 @@ def process_overlay():
                     # Ensure bounding box doesn't exceed image dimensions
                     w_bbox = min(w_bbox, image_width - x_bbox)
                     h_bbox = min(h_bbox, image_height - y_bbox)
-                    
-                    # Store mask
-                    masks.append(mask)
-                    mask_statistics.append({
-                        'mask_id': row_idx,
-                        'center_x': float(x),
-                        'center_y': float(y),
-                        'diameter': float(diameter),
-                        'mean_intensity': float(mean_intensity),
-                        'circularity': float(circularity),
-                        'area': float(area),
-                        'bounding_box': [x_bbox, y_bbox, w_bbox, h_bbox],
-                        'state': 'active'
-                    })
-                    
-                    # Build result row for CSV export - only include essential columns
-                    result_row = {
-                        'Mask_ID': row_idx + 1,
-                        'Center_X_px': f"{x:.2f}",
-                        'Center_Y_px': f"{y:.2f}",
-                        'Diameter_px': f"{diameter:.2f}",
-                        'Mean_Intensity': f"{mean_intensity:.2f}"
-                    }
-                    
-                    # Do not add other columns from original CSV (exclude red/green intensity, circularity, etc.)
-                    
-                    results.append(result_row)
+                
+                # Store mask (always store, even if invalid)
+                masks.append(mask)
+                mask_statistics.append({
+                    'mask_id': row_idx,
+                    'center_x': float(x),
+                    'center_y': float(y),
+                    'diameter': float(diameter),
+                    'mean_intensity': float(mean_intensity),
+                    'circularity': float(circularity),
+                    'area': float(area),
+                    'bounding_box': [x_bbox, y_bbox, w_bbox, h_bbox],
+                    'state': 'active'
+                })
+                
+                # Build result row for CSV export - use original Mask_ID
+                result_row = {
+                    'Mask_ID': original_mask_id,
+                    'Center_X_px': f"{x:.2f}",
+                    'Center_Y_px': f"{y:.2f}",
+                    'Diameter_px': f"{diameter:.2f}",
+                    'Mean_Intensity': f"{mean_intensity:.2f}"
+                }
+                
+                # Do not add other columns from original CSV (exclude red/green intensity, circularity, etc.)
+                
+                results.append(result_row)
             except (ValueError, TypeError) as e:
                 print(f"⚠️ Error processing row {row_idx}: {e}")
                 continue
