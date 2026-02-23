@@ -1154,7 +1154,20 @@
                         Upload Green and Red CSV files to match masks based on x,y coordinates (within ±5 pixels) and calculate the ratio of Green Intensity / Red Intensity.
                     </p>
                     
-                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <!-- Mode Toggle -->
+                    <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="radio" name="greenRedMode" value="single" checked onchange="toggleGreenRedMode()">
+                            <span>Single Pair</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="radio" name="greenRedMode" value="batch" onchange="toggleGreenRedMode()">
+                            <span>Batch Processing</span>
+                        </label>
+                    </div>
+                    
+                    <!-- Single Pair Mode -->
+                    <div id="singleGreenRedMode" style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
                         <!-- Green File Row -->
                         <div style="margin-bottom: 15px;">
                             <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
@@ -1188,11 +1201,44 @@
                         </div>
                     </div>
                     
-                    <!-- Match Button -->
+                    <!-- Batch Mode -->
+                    <div id="batchGreenRedMode" style="display: none; background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                        <label style="display: block; font-weight: 600; margin-bottom: 8px; color: #495057;">
+                            <i class="fas fa-folder-open"></i> Upload Multiple CSV Files:
+                        </label>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <input type="file" id="batchGreenRedCsvFilesInput" accept=".csv" multiple style="flex: 1; padding: 8px; border: 2px solid #e9ecef; border-radius: 6px; font-size: 0.9em;">
+                            <button class="btn" onclick="document.getElementById('batchGreenRedCsvFilesInput').click()" style="background: linear-gradient(135deg, #17a2b8 0%, #138496 100%); color: white; font-size: 0.85em; padding: 8px 16px;">
+                                <i class="fas fa-folder-open"></i> Browse
+                            </button>
+                        </div>
+                        <div id="batchGreenRedCsvFilesList" style="margin-top: 10px; font-size: 0.85em; color: #28a745; display: none;">
+                            <div><strong>Selected files:</strong></div>
+                            <div id="batchGreenRedCsvFilesListContent" style="margin-top: 5px; max-height: 150px; overflow-y: auto;"></div>
+                        </div>
+                        
+                        <div style="margin-top: 15px; padding: 10px; background: #e7f3ff; border-radius: 6px; font-size: 0.85em;">
+                            <strong>💡 How it works:</strong>
+                            <ul style="margin: 5px 0 0 20px; padding: 0;">
+                                <li>Upload multiple CSV files (both fluorescent and ROX files)</li>
+                                <li>Files will be automatically matched based on filename patterns</li>
+                                <li>Files with <code>_fluorescent_overlay</code> or <code>fluorescent</code> in name → Green</li>
+                                <li>Files with <code>_ROX_overlay</code> or <code>ROX</code> in name → Red</li>
+                                <li>Files sharing the same base name will be matched together</li>
+                                <li>Each matched pair will be processed and results downloaded</li>
+                            </ul>
+                        </div>
+                    </div>
+                    
+                    <!-- Match Buttons -->
                     <div style="text-align: center; margin-bottom: 15px;">
                         <button class="btn" onclick="matchGreenVsRed()" id="matchGreenRedBtn" 
                                 style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; font-size: 1em; padding: 12px 30px;">
                             <i class="fas fa-search"></i> Match & Calculate Ratio
+                        </button>
+                        <button class="btn" onclick="matchBatchGreenVsRed()" id="matchBatchGreenRedBtn" 
+                                style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-size: 1em; padding: 12px 30px; margin-left: 10px;">
+                            <i class="fas fa-layer-group"></i> Process All
                         </button>
                     </div>
                     
@@ -2076,6 +2122,33 @@
                 });
             }
             
+            // Handle batch green/red CSV file selection
+            const batchGreenRedCsvFilesInput = document.getElementById('batchGreenRedCsvFilesInput');
+            if (batchGreenRedCsvFilesInput) {
+                batchGreenRedCsvFilesInput.addEventListener('change', function(e) {
+                    const files = Array.from(e.target.files);
+                    const listDiv = document.getElementById('batchGreenRedCsvFilesList');
+                    const listContent = document.getElementById('batchGreenRedCsvFilesListContent');
+                    
+                    if (files.length > 0) {
+                        listDiv.style.display = 'block';
+                        listContent.innerHTML = files.map((file, idx) => {
+                            const fileName = file.name.toLowerCase();
+                            const type = fileName.includes('fluorescent') || fileName.includes('green') ? 
+                                        '<span style="color: #28a745;">(Green)</span>' : 
+                                        fileName.includes('rox') || fileName.includes('red') ? 
+                                        '<span style="color: #dc3545;">(Red)</span>' : 
+                                        '<span style="color: #666;">(Unknown)</span>';
+                            return `<div style="padding: 5px 0; border-bottom: 1px solid #e9ecef;">
+                                ${idx + 1}. ${file.name} ${type}
+                            </div>`;
+                        }).join('');
+                    } else {
+                        listDiv.style.display = 'none';
+                    }
+                });
+            }
+            
             // Handle overlay CSV file selection
             const overlayCsvFileInput = document.getElementById('overlayCsvFileInput');
             if (overlayCsvFileInput) {
@@ -2232,6 +2305,211 @@
             
             // Clean up
             URL.revokeObjectURL(url);
+        }
+        
+        // Toggle Green/Red mode (single vs batch)
+        function toggleGreenRedMode() {
+            const mode = document.querySelector('input[name="greenRedMode"]:checked')?.value || 'single';
+            const singleMode = document.getElementById('singleGreenRedMode');
+            const batchMode = document.getElementById('batchGreenRedMode');
+            const matchBtn = document.getElementById('matchGreenRedBtn');
+            const batchMatchBtn = document.getElementById('matchBatchGreenRedBtn');
+            
+            if (mode === 'batch') {
+                if (singleMode) singleMode.style.display = 'none';
+                if (batchMode) batchMode.style.display = 'block';
+                if (matchBtn) matchBtn.style.display = 'none';
+                if (batchMatchBtn) batchMatchBtn.style.display = 'inline-block';
+            } else {
+                if (singleMode) singleMode.style.display = 'block';
+                if (batchMode) batchMode.style.display = 'none';
+                if (matchBtn) matchBtn.style.display = 'inline-block';
+                if (batchMatchBtn) batchMatchBtn.style.display = 'none';
+            }
+        }
+        
+        // Match batch Green vs Red CSV files
+        async function matchBatchGreenVsRed() {
+            const csvFiles = document.getElementById('batchGreenRedCsvFilesInput')?.files;
+            
+            if (!csvFiles || csvFiles.length === 0) {
+                showError('Please select at least one CSV file.');
+                return;
+            }
+            
+            try {
+                const batchBtn = document.getElementById('matchBatchGreenRedBtn');
+                const originalText = batchBtn.innerHTML;
+                batchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                batchBtn.disabled = true;
+                
+                showProgress();
+                updateStatus(`Processing ${csvFiles.length} CSV files...`);
+                
+                const fileArray = Array.from(csvFiles);
+                
+                // Categorize files into Green and Red based on filename
+                const greenFiles = [];
+                const redFiles = [];
+                
+                fileArray.forEach(file => {
+                    const fileName = file.name.toLowerCase();
+                    if (fileName.includes('fluorescent') || fileName.includes('green')) {
+                        greenFiles.push(file);
+                    } else if (fileName.includes('rox') || fileName.includes('red')) {
+                        redFiles.push(file);
+                    }
+                });
+                
+                if (greenFiles.length === 0 || redFiles.length === 0) {
+                    showError('Please upload both Green (fluorescent) and Red (ROX) CSV files.');
+                    return;
+                }
+                
+                // Helper function to extract base name from filename
+                function extractBaseName(filename) {
+                    let base = filename.toLowerCase()
+                        .replace(/\.csv$/i, '')  // Remove .csv extension
+                        .replace(/\s*\([^)]*\)\s*/g, '')  // Remove parentheses and content like " (1)", " (2)"
+                        .replace(/_fluorescent_overlay$/i, '')
+                        .replace(/_fluorescent$/i, '')
+                        .replace(/_rox_overlay$/i, '')
+                        .replace(/_rox$/i, '')
+                        .replace(/fluorescent/i, '')
+                        .replace(/green/i, '')
+                        .replace(/rox/i, '')
+                        .replace(/red/i, '')
+                        .replace(/_overlay$/i, '')
+                        .trim();
+                    
+                    return base;
+                }
+                
+                // Match files based on base name
+                const matchedPairs = [];
+                const usedRedFiles = new Set();
+                
+                greenFiles.forEach(greenFile => {
+                    const greenBaseName = extractBaseName(greenFile.name);
+                    
+                    // Find matching red file that hasn't been used yet
+                    const matchingRed = redFiles.find((redFile, idx) => {
+                        if (usedRedFiles.has(idx)) return false;
+                        
+                        const redBaseName = extractBaseName(redFile.name);
+                        
+                        // Exact match or one contains the other (for partial matches)
+                        return greenBaseName === redBaseName || 
+                               (greenBaseName.length > 10 && redBaseName.length > 10 && 
+                                (greenBaseName.includes(redBaseName) || redBaseName.includes(greenBaseName)));
+                    });
+                    
+                    if (matchingRed) {
+                        const redIndex = redFiles.indexOf(matchingRed);
+                        usedRedFiles.add(redIndex);
+                        matchedPairs.push({
+                            green: greenFile,
+                            red: matchingRed,
+                            baseName: greenBaseName
+                        });
+                    } else {
+                        console.warn(`⚠️ No matching Red file found for ${greenFile.name}`);
+                    }
+                });
+                
+                if (matchedPairs.length === 0) {
+                    showError('No matching file pairs found. Please check filenames.');
+                    return;
+                }
+                
+                updateStatus(`Found ${matchedPairs.length} matched pairs. Processing...`);
+                
+                const results = [];
+                
+                // Process each matched pair
+                for (let i = 0; i < matchedPairs.length; i++) {
+                    const pair = matchedPairs[i];
+                    updateStatus(`Processing ${i + 1}/${matchedPairs.length}: ${pair.green.name} & ${pair.red.name}...`);
+                    
+                    const formData = new FormData();
+                    formData.append('green_file', pair.green);
+                    formData.append('red_file', pair.red);
+                    
+                    const response = await fetch('/match_green_red_csv', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        // Download CSV file
+                        downloadGreenRedResultsCSV(result);
+                        results.push({
+                            greenFile: pair.green.name,
+                            redFile: pair.red.name,
+                            success: true,
+                            matchedCount: result.matched_count || 0,
+                            onlyGreenCount: result.only_green_count || 0,
+                            onlyRedCount: result.only_red_count || 0,
+                            filename: result.filename
+                        });
+                    } else {
+                        results.push({
+                            greenFile: pair.green.name,
+                            redFile: pair.red.name,
+                            success: false,
+                            error: result.error || 'Processing failed'
+                        });
+                    }
+                }
+                
+                // Show summary
+                const successCount = results.filter(r => r.success).length;
+                const failCount = results.length - successCount;
+                
+                const resultsDiv = document.getElementById('greenRedMatchResults');
+                const summaryDiv = document.getElementById('greenRedMatchSummary');
+                if (resultsDiv && summaryDiv) {
+                    resultsDiv.style.display = 'block';
+                    summaryDiv.innerHTML = `
+                        <p><strong>✅ Batch processing completed!</strong></p>
+                        <p>Success: <strong>${successCount}</strong> | Failed: <strong>${failCount}</strong></p>
+                        <div style="margin-top: 10px; max-height: 300px; overflow-y: auto; font-size: 0.9em;">
+                            ${results.map(r => `
+                                <div style="padding: 8px 0; border-bottom: 1px solid #e9ecef;">
+                                    <div style="display: flex; align-items: center; gap: 8px;">
+                                        <span style="font-size: 1.2em;">${r.success ? '✅' : '❌'}</span>
+                                        <div style="flex: 1;">
+                                            <div><strong>${r.greenFile}</strong> & <strong>${r.redFile}</strong></div>
+                                            ${r.success ? 
+                                                `<div style="color: #28a745; font-size: 0.85em;">
+                                                    Matched: ${r.matchedCount} | Only Green: ${r.onlyGreenCount} | Only Red: ${r.onlyRedCount}
+                                                </div>
+                                                <div style="color: #666; font-size: 0.85em;">Downloaded: ${r.filename}</div>` : 
+                                                `<div style="color: #dc3545; font-size: 0.85em;">Error: ${r.error}</div>`
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
+                
+                showSuccess(`Batch processing completed! ${successCount} successful, ${failCount} failed.`);
+                
+            } catch (error) {
+                console.error('Error in batch green/red matching:', error);
+                showError('Network error: ' + error.message);
+            } finally {
+                hideProgress();
+                const batchBtn = document.getElementById('matchBatchGreenRedBtn');
+                if (batchBtn) {
+                    batchBtn.innerHTML = '<i class="fas fa-layer-group"></i> Process All';
+                    batchBtn.disabled = false;
+                }
+            }
         }
         
         // Process overlay CSV
