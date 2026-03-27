@@ -4,8 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: sam-segmentation-app-gpu
-    ports:
-      - "5013:5013"
+    # Use host networking so Cloudflare/origin can reach the Flask server on localhost:5013.
+    # (Docker port publishing to the host appears to accept TCP but fails to deliver HTTP bytes.)
+    network_mode: host
     volumes:
       # Mount directories for persistence
       - ./uploads:/app/uploads

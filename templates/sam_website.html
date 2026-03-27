@@ -3408,6 +3408,10 @@
                         // Load masks from cached results
                         masks = img.segmentationResults.masks.map(maskData => new Mask(maskData));
                         updateResultsPanel();
+                        // Re-enable interactions and redraw overlays for the switched image.
+                        maskInteractionEnabled = true;
+                        canvas.style.cursor = 'pointer';
+                        drawMasks();
                         // Note: overlay is already displayed from switch_image response
                     } else {
                         // No segmentation results, just clear canvas

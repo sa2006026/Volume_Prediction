@@ -11,6 +11,9 @@ Terminal 2:  cloudflared tunnel run sam-website
 nohup cloudflared tunnel run sam-website > ~/cloudflared.log 2>&1 &
 Access:      https://mibseg.com
 
+pkill -f "cloudflared tunnel run sam-website"
+nohup env TUNNEL_TRANSPORT_PROTOCOL=http2 cloudflared tunnel run sam-website > ~/cloudflared-sam-website.log 2>&1 &
+
 rebuild the docker: docker compose -f docker-compose.gpu.yml up -d --build
 
 stop the cloudflare: pkill -f "cloudflared tunnel run sam-website"
