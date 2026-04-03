@@ -17,10 +17,10 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      # Use GPU 1 from host (NVIDIA RTX A5000)
-      # NVIDIA_VISIBLE_DEVICES=1 exposes only GPU 1 to container
-      # CUDA_VISIBLE_DEVICES=0 uses the first (and only) GPU in container (which is host GPU 1)
-      - NVIDIA_VISIBLE_DEVICES=1
+      # Use GPU 0 from host (NVIDIA RTX 5000 Ada, higher VRAM)
+      # NVIDIA_VISIBLE_DEVICES=0 exposes only GPU 0 to container
+      # CUDA_VISIBLE_DEVICES=0 uses the first (and only) GPU inside container (host GPU 0)
+      - NVIDIA_VISIBLE_DEVICES=0
       - CUDA_VISIBLE_DEVICES=0
       - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
     # GPU configuration - use nvidia runtime

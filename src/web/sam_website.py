@@ -111,7 +111,7 @@ class SAMWebEngine:
         # Cache for dark edge data: key = (mask_id, edge_width, darkness_threshold)
         self.dark_edge_cache = {}
         # Cache for segmentation state per image: key = image_path
-        # Stores: {'sam_analyzer': SAMAnalyzer, 'parameters': dict, 'image': np.ndarray}
+        # Stores lightweight data only: {'masks', 'mask_statistics', 'mask_states', 'parameters', 'image'}
         self.segmentation_cache = {}
         os.makedirs(self.output_dir, exist_ok=True)
         
@@ -765,8 +765,14 @@ class SAMWebEngine:
             self.original_image = cache_entry['image'].copy()
             self.current_image = self.original_image.copy()
             
-            # Restore SAM analyzer (this contains all masks and segmentation state)
-            self.sam_analyzer = cache_entry['sam_analyzer']
+            # Reuse a single analyzer instance instead of restoring cached analyzer objects.
+            # Caching full analyzer objects duplicates SAM models across images and can exhaust VRAM.
+            if self.sam_analyzer is None:
+                self.sam_analyzer = SAMAnalyzer()
+            self.sam_analyzer.load_image(self.current_image.copy())
+            self.sam_analyzer.masks = [m.copy() for m in cache_entry.get('masks', [])]
+            self.sam_analyzer.mask_statistics = [dict(s) for s in cache_entry.get('mask_statistics', [])]
+            self.sam_analyzer.mask_states = list(cache_entry.get('mask_states', []))
 
             # Re-apply preserved unit conversion settings (if any)
             if preserved_conversion:
@@ -850,6 +856,16 @@ class SAMWebEngine:
                                 performance_mode: bool = False,
                                 use_gpu: bool = True):
         """Configure SAM model parameters with advanced backend support"""
+        # IMPORTANT: compute this before assigning new values.
+        params_changed = (
+            self.current_model_size != model_size or
+            self.current_crop_layers != crop_layers or
+            self.current_points_per_side != points_per_side or
+            self.current_backend != backend or
+            self.performance_mode != performance_mode or
+            self.use_gpu != use_gpu
+        )
+
         self.current_model_size = model_size
         self.current_crop_layers = crop_layers
         self.current_points_per_side = points_per_side
@@ -872,16 +888,6 @@ class SAMWebEngine:
         
         # Update SAM analyzer if it exists
         if self.sam_analyzer:
-            # Check if parameters actually changed
-            params_changed = (
-                self.current_model_size != model_size or
-                self.current_crop_layers != crop_layers or
-                self.current_points_per_side != points_per_side or
-                self.current_backend != backend or
-                self.performance_mode != performance_mode or
-                self.use_gpu != use_gpu
-            )
-            
             # Only recreate if parameters changed or if analyzer has no masks
             # (preserve cached segmentation state if parameters match)
             if params_changed or not self.sam_analyzer.masks:
@@ -963,8 +969,11 @@ class SAMWebEngine:
         """Save current segmentation state to cache"""
         if self.image_path and self.sam_analyzer and self.sam_analyzer.masks:
             cache_entry = {
-                'sam_analyzer': self.sam_analyzer,  # Store reference to the analyzer with masks
                 'image': self.current_image.copy(),  # Store image copy
+                # Store lightweight segmentation outputs only (no model object)
+                'masks': [m.copy() for m in self.sam_analyzer.masks],
+                'mask_statistics': [dict(s) for s in self.sam_analyzer.mask_statistics],
+                'mask_states': list(self.sam_analyzer.mask_states),
                 'parameters': {
                     'model_size': self.current_model_size,
                     'crop_layers': self.current_crop_layers,
@@ -4901,7 +4910,7 @@ if __name__ == '__main__':
     
     try:
         # Use 0.0.0.0 to allow connections from outside the container (for Docker)
-        app.run(host='0.0.0.0', port=5013, debug=False, use_reloader=False)
+        app.run(host='0.0.0.0', port=5014, debug=False, use_reloader=False)
     except Exception as e:
         print(f"❌ Error starting server: {e}")
         import traceback

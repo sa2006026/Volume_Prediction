@@ -1,5 +1,21 @@
 mamba activate myenv
 
+cd ~/Jimmy/Volume_Prediction
+./scripts/docker_start.sh gpu
+
+pkill -f "cloudflared tunnel run sam-website"
+nohup env TUNNEL_TRANSPORT_PROTOCOL=http2 cloudflared tunnel run sam-website > ~/cloudflared-sam-website.log 2>&1 &
+
+#verify
+docker ps | grep sam-segmentation-app-gpu
+nvidia-smi
+cloudflared tunnel info sam-website
+curl -I https://mibseg.com
+
+#check live log
+docker compose -f docker-compose.gpu.yml logs -f sam-website
+
+
 ================================================================================
   DOCKER + CLOUDFLARE QUICK START - mibseg.com
 ================================================================================
@@ -10,6 +26,11 @@ Terminal 1:  ./scripts/docker_start.sh gpu
 Terminal 2:  cloudflared tunnel run sam-website
 nohup cloudflared tunnel run sam-website > ~/cloudflared.log 2>&1 &
 Access:      https://mibseg.com
+
+NOTE (GPU-ONLY):
+----------------
+`./scripts/docker_start.sh gpu` now runs in strict GPU-only mode.
+If GPU/NVIDIA Docker check fails, startup aborts (no CPU fallback).
 
 pkill -f "cloudflared tunnel run sam-website"
 nohup env TUNNEL_TRANSPORT_PROTOCOL=http2 cloudflared tunnel run sam-website > ~/cloudflared-sam-website.log 2>&1 &
@@ -47,6 +68,7 @@ BACKGROUND SERVICES (SURVIVES TERMINAL CLOSURE):
 VERIFY:
 -------
 docker ps | grep sam-segmentation-app-gpu
+nvidia-smi
 systemctl --user status cloudflared
 curl https://mibseg.com
 

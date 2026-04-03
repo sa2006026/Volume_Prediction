@@ -49,12 +49,17 @@ case $MODE in
         ;;
     gpu)
         echo "🎮 Starting in GPU mode..."
-        # Check for NVIDIA Docker
+        # Check for NVIDIA Docker (GPU-only mode: fail fast, do not fallback to CPU)
         if docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi &> /dev/null; then
             COMPOSE_FILE="$PROJECT_ROOT/docker-compose.gpu.yml"
         else
-            echo "⚠️  GPU not available, falling back to CPU mode"
-            COMPOSE_FILE="$PROJECT_ROOT/docker-compose.cpu.yml"
+            echo "❌ GPU check failed. Aborting startup (GPU-only mode)."
+            echo "   This script no longer falls back to CPU when mode=gpu."
+            echo "   Troubleshoot:"
+            echo "   1) nvidia-smi"
+            echo "   2) docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi"
+            echo "   3) Verify NVIDIA Container Toolkit is installed and Docker was restarted"
+            exit 1
         fi
         ;;
     *)
