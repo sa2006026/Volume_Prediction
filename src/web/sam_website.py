@@ -17,6 +17,7 @@ import base64
 import io
 from PIL import Image
 import json
+import re
 from datetime import datetime
 import sys
 from werkzeug.utils import secure_filename
@@ -1954,6 +1955,7 @@ def run_sam_segmentation_batch():
         image_paths = data.get('image_paths', [])
         if not image_paths:
             return jsonify({'success': False, 'error': 'No image paths provided'})
+
 
         # Generate unique job ID
         job_id = str(uuid4())
@@ -4641,6 +4643,293 @@ def process_overlay():
     
     except Exception as e:
         print(f"❌ Error in overlay processing: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/process_overlay_batch', methods=['POST'])
+def process_overlay_batch():
+    """Batch process overlay CSV files mapped to uploaded images by filename."""
+    try:
+        import csv
+        import zipfile
+
+        csv_files = request.files.getlist('csv_files')
+        if not csv_files:
+            return jsonify({'success': False, 'error': 'No CSV files provided'})
+
+        image_paths_raw = request.form.get('image_paths', '[]')
+        try:
+            image_paths = json.loads(image_paths_raw)
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid image_paths payload'})
+
+        if not image_paths:
+            return jsonify({'success': False, 'error': 'No image paths provided'})
+
+        def normalize_base_name(filename: str) -> str:
+            base = os.path.splitext(os.path.basename(filename or ''))[0].lower()
+            # Remove common suffixes so CSV/image names can be matched robustly.
+            suffixes = [
+                '_fluorescent_overlay', '_rox_overlay', '_red_overlay', '_green_overlay',
+                '_overlay', '_fluorescent', '_rox', '_red', '_green',
+                '_csv_data', '_csv'
+            ]
+            changed = True
+            while changed:
+                changed = False
+                for suf in suffixes:
+                    if base.endswith(suf):
+                        base = base[:-len(suf)]
+                        changed = True
+                        break
+            return base.rstrip('_- ')
+
+        def canonical_keys(filename: str):
+            """
+            Build multiple comparable keys for robust CSV<->image matching:
+            - exact normalized key
+            - channel-agnostic key (drop _chNN token so ch01/ch02 can pair)
+            """
+            base = normalize_base_name(filename)
+            keys = [base]
+            channel_agnostic = re.sub(r'_ch\d+\b', '', base)
+            channel_agnostic = re.sub(r'__+', '_', channel_agnostic).strip('_- ')
+            if channel_agnostic and channel_agnostic not in keys:
+                keys.append(channel_agnostic)
+            return keys
+
+        image_map = {}
+        for image_path in image_paths:
+            if not image_path or not os.path.exists(image_path):
+                continue
+            for key in canonical_keys(image_path):
+                image_map[key] = image_path
+
+        if not image_map:
+            return jsonify({'success': False, 'error': 'No valid uploaded images found for matching'})
+
+        results = []
+        failures = []
+
+        for csv_file in csv_files:
+            csv_name = csv_file.filename or 'unnamed.csv'
+            csv_keys = canonical_keys(csv_name)
+            csv_base = csv_keys[0]
+            matched_image_path = None
+            for key in csv_keys:
+                if key in image_map:
+                    matched_image_path = image_map.get(key)
+                    break
+            if not matched_image_path:
+                # Fallback matching:
+                # 1) exact prefix in either direction
+                # 2) strongest token-overlap score
+                candidates = list(image_map.keys())
+                prefix_match = next(
+                    (k for k in candidates if k.startswith(csv_base) or csv_base.startswith(k)),
+                    None
+                )
+                if prefix_match:
+                    matched_image_path = image_map.get(prefix_match)
+                else:
+                    csv_tokens = [t for t in csv_base.replace('-', '_').split('_') if t]
+                    best_key = None
+                    best_score = 0
+                    for key in candidates:
+                        key_tokens = [t for t in key.replace('-', '_').split('_') if t]
+                        score = len(set(csv_tokens) & set(key_tokens))
+                        if score > best_score:
+                            best_score = score
+                            best_key = key
+                    # Require a reasonable overlap to avoid mismatching unrelated files.
+                    if best_key and best_score >= 4:
+                        matched_image_path = image_map.get(best_key)
+
+            if not matched_image_path:
+                failures.append({
+                    'csv_file': csv_name,
+                    'error': f'No matching uploaded image found for base name "{csv_base}"'
+                })
+                continue
+
+            try:
+                # Switch to the matched image context (and preserve any existing cache state).
+                engine.load_image(matched_image_path, restore_from_cache=True)
+                if engine.current_image is None:
+                    raise ValueError(f'Failed to load matched image: {matched_image_path}')
+
+                fluorescent = ('fluorescent' in csv_name.lower()) or ('green' in csv_name.lower())
+                rox = ('rox' in csv_name.lower()) or ('red' in csv_name.lower())
+
+                csv_content = csv_file.read().decode('utf-8')
+                csv_reader = csv.DictReader(io.StringIO(csv_content))
+                csv_rows = list(csv_reader)
+                if not csv_rows:
+                    raise ValueError('CSV file is empty')
+
+                def find_columns(row):
+                    x_col = None
+                    y_col = None
+                    diameter_col = None
+                    mask_id_col = None
+                    for col in row.keys():
+                        col_lower = col.lower()
+                        if 'center_x' in col_lower or (col_lower == 'x' and x_col is None):
+                            x_col = col
+                        if 'center_y' in col_lower or (col_lower == 'y' and y_col is None):
+                            y_col = col
+                        if 'diameter' in col_lower and 'prediction' not in col_lower and 'dark_edge' not in col_lower:
+                            diameter_col = col
+                        if 'mask_id' in col_lower:
+                            mask_id_col = col
+                    return x_col, y_col, diameter_col, mask_id_col
+
+                x_col, y_col, diameter_col, mask_id_col = find_columns(csv_rows[0])
+                if not x_col or not y_col or not diameter_col:
+                    raise ValueError('Could not find required columns: Center_X/X, Center_Y/Y, Diameter')
+
+                image = engine.current_image.copy()
+                gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                image_height, image_width = image.shape[:2]
+
+                masks = []
+                mask_statistics = []
+                overlay_rows = []
+
+                for row_idx, row in enumerate(csv_rows):
+                    try:
+                        if mask_id_col and mask_id_col in row:
+                            try:
+                                original_mask_id = int(float(str(row.get(mask_id_col, row_idx)).strip()))
+                            except (ValueError, TypeError):
+                                original_mask_id = row_idx
+                        else:
+                            original_mask_id = row_idx
+
+                        x = float(str(row.get(x_col, '0')).strip())
+                        y = float(str(row.get(y_col, '0')).strip())
+                        diameter = float(str(row.get(diameter_col, '0')).strip())
+
+                        if diameter <= 0:
+                            mean_intensity = 0.0
+                            area = 0.0
+                            circularity = 0.0
+                            x_bbox = max(0, int(round(x)))
+                            y_bbox = max(0, int(round(y)))
+                            w_bbox = 0
+                            h_bbox = 0
+                            mask = np.zeros((image_height, image_width), dtype=np.uint8)
+                        else:
+                            radius = diameter / 2.0
+                            mask = np.zeros((image_height, image_width), dtype=np.uint8)
+                            center = (int(round(x)), int(round(y)))
+                            cv2.circle(mask, center, int(round(radius)), 255, -1)
+                            mask_pixels = mask > 0
+                            mean_intensity = float(np.mean(gray_image[mask_pixels])) if np.any(mask_pixels) else 0.0
+
+                            contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                            area = float(np.sum(mask > 0))
+                            perimeter = cv2.arcLength(contours[0], True) if contours else 0
+                            circularity = float(4 * np.pi * area / (perimeter * perimeter)) if perimeter > 0 else 0.0
+
+                            x_bbox = max(0, int(round(x - radius)))
+                            y_bbox = max(0, int(round(y - radius)))
+                            w_bbox = int(round(diameter))
+                            h_bbox = int(round(diameter))
+                            w_bbox = min(w_bbox, image_width - x_bbox)
+                            h_bbox = min(h_bbox, image_height - y_bbox)
+
+                        masks.append(mask)
+                        mask_statistics.append({
+                            'mask_id': row_idx,
+                            'center_x': float(x),
+                            'center_y': float(y),
+                            'diameter': float(diameter),
+                            'mean_intensity': float(mean_intensity),
+                            'circularity': float(circularity),
+                            'area': float(area),
+                            'bounding_box': [x_bbox, y_bbox, w_bbox, h_bbox],
+                            'state': 'active'
+                        })
+
+                        overlay_rows.append({
+                            'Mask_ID': original_mask_id,
+                            'Center_X_px': f"{x:.2f}",
+                            'Center_Y_px': f"{y:.2f}",
+                            'Diameter_px': f"{diameter:.2f}",
+                            'Mean_Intensity': f"{mean_intensity:.2f}"
+                        })
+                    except (ValueError, TypeError):
+                        continue
+
+                if not masks:
+                    raise ValueError('No valid masks were created from CSV')
+
+                engine.sam_analyzer.masks = masks
+                engine.sam_analyzer.mask_statistics = mask_statistics
+                engine.sam_analyzer.mask_states = ['active'] * len(masks)
+                # Persist per-image overlay state so switching images restores overlays.
+                engine._save_segmentation_to_cache()
+
+                csv_lines = []
+                if overlay_rows:
+                    header = list(overlay_rows[0].keys())
+                    csv_lines.append(",".join(header))
+                    for row in overlay_rows:
+                        csv_lines.append(",".join([str(row.get(col, '')) for col in header]))
+                overlay_csv_content = "\n".join(csv_lines)
+
+                base_name = os.path.splitext(csv_name)[0] if csv_name else f"overlay_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                if fluorescent:
+                    out_name = f'{base_name}_fluorescent_overlay.csv'
+                elif rox:
+                    out_name = f'{base_name}_ROX_overlay.csv'
+                else:
+                    out_name = f'{base_name}_overlay.csv'
+
+                results.append({
+                    'csv_file': csv_name,
+                    'image_path': matched_image_path,
+                    'image_name': os.path.basename(matched_image_path),
+                    'filename': out_name,
+                    'csv_content': overlay_csv_content,
+                    'total_masks': len(masks),
+                    'masks': mask_statistics
+                })
+            except Exception as item_error:
+                failures.append({
+                    'csv_file': csv_name,
+                    'image_path': matched_image_path,
+                    'error': str(item_error)
+                })
+
+        zip_base64 = None
+        zip_filename = None
+        if results:
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+                for item in results:
+                    out_name = item.get('filename') or 'overlay.csv'
+                    csv_data = item.get('csv_content', '')
+                    zf.writestr(out_name, csv_data)
+            zip_buffer.seek(0)
+            zip_base64 = base64.b64encode(zip_buffer.read()).decode('utf-8')
+            zip_filename = f'overlay_batch_{datetime.now().strftime("%Y%m%d_%H%M%S")}.zip'
+
+        return jsonify({
+            'success': True,
+            'processed_count': len(results),
+            'failed_count': len(failures),
+            'results': results,
+            'failures': failures,
+            'zip_base64': zip_base64,
+            'zip_filename': zip_filename,
+            'message': f'Batch overlay completed: {len(results)} succeeded, {len(failures)} failed.'
+        })
+
+    except Exception as e:
+        print(f"❌ Error in batch overlay processing: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})

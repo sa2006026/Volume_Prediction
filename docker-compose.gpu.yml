@@ -9,6 +9,7 @@ services:
     network_mode: host
     volumes:
       # Mount directories for persistence
+      - ./src:/app/src
       - ./uploads:/app/uploads
       - ./results:/app/results
       - ./templates:/app/templates
