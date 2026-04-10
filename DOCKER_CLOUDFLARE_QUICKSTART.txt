@@ -1,3 +1,5 @@
+docker compose -f docker-compose.gpu.yml restart sam-website
+
 mamba activate myenv
 
 cd ~/Jimmy/Volume_Prediction

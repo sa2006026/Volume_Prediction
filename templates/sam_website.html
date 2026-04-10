@@ -4243,12 +4243,8 @@
         function handleMouseMove(e) {
             if (!maskInteractionEnabled || masks.length === 0) return;
             
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            
-            // Find mask at current position
-            const maskIndex = findMaskAtPoint(x, y);
+            // Find mask at current position (pass viewport coords; CSS vs buffer scaling handled inside)
+            const maskIndex = findMaskAtPoint(e.clientX, e.clientY);
             
             if (maskIndex !== hoveredMaskIndex) {
                 hoveredMaskIndex = maskIndex;
@@ -4470,12 +4466,8 @@
         function handleMaskClick(e) {
             if (!maskInteractionEnabled || masks.length === 0) return;
             
-            const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            
-            // Find mask at clicked position
-            const maskIndex = findMaskAtPoint(x, y);
+            // Find mask at clicked position (viewport coords; accounts for CSS-scaled canvas)
+            const maskIndex = findMaskAtPoint(e.clientX, e.clientY);
             
             if (maskIndex >= 0) {
                 // Toggle mask state
@@ -4818,12 +4810,26 @@
             // Users can still see mask details in the preview panel when hovering
         }
         
-        // Find mask at coordinates
-        function findMaskAtPoint(x, y) {
-            // Convert canvas coordinates to image coordinates
+        /**
+         * Map pointer position from viewport (clientX/Y) to canvas buffer pixel coordinates.
+         * Needed when #imageCanvas is CSS-scaled (max-width: 100%) so displayed size ≠ canvas.width/height.
+         */
+        function clientToCanvasBufferXY(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const rw = rect.width || 1;
+            const rh = rect.height || 1;
+            const x = (clientX - rect.left) * (canvas.width / rw);
+            const y = (clientY - rect.top) * (canvas.height / rh);
+            return { x, y };
+        }
+
+        // Find mask at coordinates (clientX, clientY = MouseEvent client coordinates)
+        function findMaskAtPoint(clientX, clientY) {
+            const { x, y } = clientToCanvasBufferXY(clientX, clientY);
+            // Buffer coords → full image coordinates (same convention as getScaledBoundingBox)
             const imageX = x / canvasScale;
             const imageY = y / canvasScale;
-            
+
             for (let i = masks.length - 1; i >= 0; i--) {
                 if (masks[i].containsPoint(imageX, imageY)) {
                     return i;
